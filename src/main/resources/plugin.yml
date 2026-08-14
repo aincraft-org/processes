@@ -1,0 +1,5 @@
+name: CraftingManager
+version: '${version}'
+main: dev.craftingmanager.CraftingManagerPlugin
+api-version: '1.21'
+description: Stateless runtime SPI for custom recipes and functional-block processes
