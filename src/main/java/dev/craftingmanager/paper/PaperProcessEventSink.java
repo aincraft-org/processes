@@ -3,9 +3,9 @@ package dev.craftingmanager.paper;
 import dev.craftingmanager.api.Domain.ProcessState;
 import dev.craftingmanager.api.ProcessEventSink;
 import dev.craftingmanager.api.ProcessUsage;
+import dev.craftingmanager.api.event.PreProcessEvent;
 import dev.craftingmanager.api.event.ProcessFinishedEvent;
 import dev.craftingmanager.api.event.ProcessStartedEvent;
-import dev.craftingmanager.api.event.ProcessStartingEvent;
 import org.bukkit.Bukkit;
 
 /** Fires Bukkit process-usage events and applies optional protection access. */
@@ -22,7 +22,7 @@ public final class PaperProcessEventSink implements ProcessEventSink {
 
     @Override public boolean emitStarting(ProcessUsage usage) {
         if (!access.canInteract(usage.block(), usage.owner())) return false;
-        ProcessStartingEvent event = new ProcessStartingEvent(usage.block(), usage.processId(), usage.owner());
+        PreProcessEvent event = new PreProcessEvent(usage.block(), usage.processId(), usage.owner());
         Bukkit.getPluginManager().callEvent(event);
         return !event.isCancelled();
     }

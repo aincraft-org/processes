@@ -57,7 +57,7 @@ Success looks like: professions / chemistry / furniture plugins compile against 
 - Recipe matching is core. `RecipeApi` types must have a registry and matcher, not only records.
 - Item take/give is abstract: processes declare `ProcessInput` + `ItemOutput` snapshots. Do not put alloy-specific consume/grant logic in `RuntimeEngine`. Paper `PlayerItemVault` is one `ItemVault`; tests use `MapItemVault`.
 - Hopper I/O is abstract face routing: `ProcessInput.insertFaces` and `ItemOutput.extractFaces`. `insertAt`/`extractAt` match those ports. Paper hoppers only translate `BlockFace` → `ProcessFace`.
-- Process usage is observable: `ProcessStartingEvent` (cancellable), `ProcessStartedEvent`, and `ProcessFinishedEvent` carry owner UUID, `BlockKey`, process id, and instance id. The engine fires through `ProcessEventSink`; tests record; Paper publishes Bukkit events. Do not skip identity fields.
+- Process usage is observable: listen to `ProcessEvent` for every phase. `PreProcessEvent` is the cancellable start; `ProcessStartedEvent` and `ProcessFinishedEvent` follow. All carry owner UUID, `BlockKey`, and process id. The engine fires through `ProcessEventSink`; tests record; Paper publishes Bukkit events. Do not skip identity fields.
 - Functional-block hosts are lockable materials. Providers may also call `registerLockableBlock`. When Bolt is present, core adds missing materials to Bolt's in-memory protectable set (no Bolt `config.yml` edits). Start is denied when Bolt says the player cannot `interact`.
 - After restart: reload instance rows, wait for definition re-registration, resume or park as `NEEDS_PROVIDER_ACTION`.
 - Testing: domain tests for execution; persistence tests for namespaced schema and restart reload; structural tests for CustomPack models.
@@ -81,7 +81,7 @@ Shipped kernel (still in-memory only until Next lands):
 - [x] Persist first-party functional-block placements (`craftingmanager.functional_blocks`).
 - [x] Generic item I/O: `ItemOutput` effect, `ItemVault`/`SlotInventoryAdapter`, required-input coverage. First-party smelter is only a process definition.
 - [x] Process face ports for hopper I/O (`insertFaces` / `extractFaces`). First-party smelter: UP iron, sides fuel, DOWN output.
-- [x] Process usage events: starting (cancellable), started, finished, with owner / block / process / instance.
+- [x] Process usage events: `ProcessEvent` base, `PreProcessEvent` (cancellable), started, finished, with owner / block / process / instance.
 - [x] Lockable station hosts; Bolt softdepend registers them as protectable (grindstone is not in Bolt's default list).
 
 ### Current notes

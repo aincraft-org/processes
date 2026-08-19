@@ -67,16 +67,17 @@ class LockableBlockTest {
         assertTrue(plugin.contains("PaperProcessEventSink") || plugin.contains("ProcessEventSink"));
         assertTrue(plugin.contains("BoltLockableHook") || plugin.contains("BoltProtectableBlocks"));
         assertTrue(Files.isRegularFile(root.resolve(
-                "src/main/java/dev/craftingmanager/api/event/ProcessStartingEvent.java")));
+                "src/main/java/dev/craftingmanager/api/event/ProcessEvent.java")));
+        assertTrue(Files.isRegularFile(root.resolve(
+                "src/main/java/dev/craftingmanager/api/event/PreProcessEvent.java")));
         assertTrue(Files.isRegularFile(root.resolve(
                 "src/main/java/dev/craftingmanager/api/event/ProcessStartedEvent.java")));
         assertTrue(Files.isRegularFile(root.resolve(
                 "src/main/java/dev/craftingmanager/api/event/ProcessFinishedEvent.java")));
         String starting = Files.readString(root.resolve(
-                "src/main/java/dev/craftingmanager/api/event/ProcessStartingEvent.java"));
+                "src/main/java/dev/craftingmanager/api/event/PreProcessEvent.java"));
+        assertTrue(starting.contains("extends ProcessEvent"));
         assertTrue(starting.contains("implements Cancellable"));
         assertTrue(starting.contains("HandlerList"));
-        assertTrue(starting.contains("owner"));
-        assertTrue(starting.contains("processId"));
     }
 }
