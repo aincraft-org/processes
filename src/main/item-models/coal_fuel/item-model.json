@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "coal_fuel",
+  "kind": "generated",
+  "textures": {
+    "layer0": "layer0.png"
+  }
+}

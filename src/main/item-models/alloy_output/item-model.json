@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "alloy_output",
+  "kind": "generated",
+  "textures": {
+    "layer0": "layer0.png"
+  }
+}

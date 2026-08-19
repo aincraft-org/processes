@@ -2,7 +2,8 @@ package dev.craftingmanager.example;
 
 import dev.craftingmanager.api.CraftingManagerApi;
 import dev.craftingmanager.api.Domain.BlockKey;
-import dev.craftingmanager.api.ItemSnapshot;
+import io.papermc.paper.datacomponent.DataComponentTypes;
+import net.kyori.adventure.key.Key;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -61,21 +62,36 @@ public final class ExampleProcessGui {
     public Inventory inventory() { return inventory; }
     public String message() { return message; }
 
+    /** CustomPack catalog id for a GUI slot, or null for decorative slots. */
+    public static String itemModel(int slot) {
+        return switch (slot) {
+            case IRON_SLOT -> "craftingmanager:iron_input";
+            case COAL_SLOT -> "craftingmanager:coal_fuel";
+            case OUTPUT_SLOT -> "craftingmanager:alloy_output";
+            case START_SLOT -> "craftingmanager:start_process";
+            default -> null;
+        };
+    }
+
     private void render() {
         if (inventory == null) return;
         inventory.clear();
-        inventory.setItem(IRON_SLOT, item(Material.IRON_INGOT, "Iron input", List.of("Required: 1")));
-        inventory.setItem(COAL_SLOT, item(Material.COAL, "Coal fuel", List.of("Required: 1")));
-        inventory.setItem(OUTPUT_SLOT, item(Material.IRON_NUGGET, "Alloy output", List.of("Preview")));
-        inventory.setItem(START_SLOT, item(Material.LIME_CONCRETE, "Start process", List.of("Click to begin")));
+        inventory.setItem(IRON_SLOT, item(Material.IRON_INGOT, "Iron input", List.of("Required: 1"), IRON_SLOT));
+        inventory.setItem(COAL_SLOT, item(Material.COAL, "Coal fuel", List.of("Required: 1"), COAL_SLOT));
+        inventory.setItem(OUTPUT_SLOT, item(Material.IRON_NUGGET, "Alloy output", List.of("Preview"), OUTPUT_SLOT));
+        inventory.setItem(START_SLOT, item(Material.LIME_CONCRETE, "Start process", List.of("Click to begin"), START_SLOT));
     }
 
-    private static ItemStack item(Material material, String name, List<String> lore) {
+    private static ItemStack item(Material material, String name, List<String> lore, int slot) {
         ItemStack stack = new ItemStack(material);
         ItemMeta meta = stack.getItemMeta();
         meta.setDisplayName(name);
         meta.setLore(lore);
         stack.setItemMeta(meta);
+        String model = itemModel(slot);
+        if (model != null) {
+            stack.setData(DataComponentTypes.ITEM_MODEL, Key.key(model));
+        }
         return stack;
     }
 

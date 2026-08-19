@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "start_process",
+  "kind": "generated",
+  "textures": {
+    "layer0": "layer0.png"
+  }
+}

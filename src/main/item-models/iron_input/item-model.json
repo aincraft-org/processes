@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "iron_input",
+  "kind": "generated",
+  "textures": {
+    "layer0": "layer0.png"
+  }
+}
