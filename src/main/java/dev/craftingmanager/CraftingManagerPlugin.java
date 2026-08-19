@@ -5,6 +5,7 @@ import dev.craftingmanager.example.AlloySmelterListener;
 import dev.craftingmanager.example.ExampleGuiListener;
 import dev.craftingmanager.example.ExampleProcessProvider;
 import dev.craftingmanager.paper.FunctionalBlockEvents;
+import dev.craftingmanager.paper.HopperIoListener;
 import dev.craftingmanager.paper.PlayerItemVault;
 import dev.craftingmanager.paper.ProcessInteractionListener;
 import dev.craftingmanager.persistence.SqliteProcessStore;
@@ -35,6 +36,7 @@ public final class CraftingManagerPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new FunctionalBlockEvents(engine::invalidateBlock, engine::invalidateBlock), this);
         getServer().getPluginManager().registerEvents(guiListener, this);
         getServer().getPluginManager().registerEvents(new AlloySmelterListener(engine, firstParty), this);
+        getServer().getPluginManager().registerEvents(new HopperIoListener(engine), this);
     }
 
     @Override public void onDisable() {
