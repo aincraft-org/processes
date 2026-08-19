@@ -213,6 +213,10 @@ class FirstPartyExamplesTest {
         assertTrue(plugin.contains("FirstPartyStationListener"));
         assertTrue(plugin.contains("firstParty.enable()"));
         assertTrue(plugin.contains("firstParty.disable()"));
+        assertTrue(plugin.contains("runTaskTimer"));
+        assertTrue(plugin.contains("engine::tick"));
+        assertTrue(plugin.contains("ProcessChunkListener"));
+        assertTrue(plugin.contains("setChunkLoaded"));
         assertTrue(listener.contains("GRINDSTONE"));
         assertTrue(listener.contains("CAULDRON"));
         assertTrue(listener.contains("BLAST_FURNACE"));
