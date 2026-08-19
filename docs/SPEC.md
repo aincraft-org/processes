@@ -147,7 +147,7 @@ The engine must:
 2. Revalidate claims before mutation.
 3. Mutate inventories only on the Bukkit main thread.
 4. Reject stale callbacks using instance ID and revision.
-5. Execute ordered steps.
+5. Execute ordered steps for `durationTicks`. Progress is elapsed loaded-chunk ticks, persisted as `step_ticks`, and does not catch up while the chunk or server is down.
 6. Dispatch completion effects through registered handlers.
 7. Persist instance, reservation, and ledger rows so restart can resume or park them.
 8. Never silently skip an unavailable or failed effect.

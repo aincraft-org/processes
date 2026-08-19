@@ -30,6 +30,7 @@ public final class SqliteProcessStore implements ProcessStore, AutoCloseable {
     private static final String SELECT_SCHEMA_VERSION = SqlStatements.load("migrations/select-schema_version.sql", SCHEMA);
     private static final String UPSERT_SCHEMA_VERSION = SqlStatements.load("migrations/upsert-schema_version.sql", SCHEMA);
     private static final String INITIAL_SCHEMA = SqlStatements.load("migrations/V001__initial.sql", SCHEMA);
+    private static final String STEP_TICKS_SCHEMA = SqlStatements.load("migrations/V002__step_ticks.sql", SCHEMA);
     private static final String DELETE_RESERVATIONS = SqlStatements.load("process/delete-reservations.sql", SCHEMA);
     private static final String DELETE_EFFECT_LEDGER = SqlStatements.load("process/delete-effect-ledger.sql", SCHEMA);
     private static final String UPSERT_INSTANCE = SqlStatements.load("process/upsert-instance.sql", SCHEMA);
@@ -58,7 +59,7 @@ public final class SqliteProcessStore implements ProcessStore, AutoCloseable {
             String path = file.toAbsolutePath().toString().replace("'", "''");
             try (Statement statement = connection.createStatement()) {
                 statement.execute("ATTACH DATABASE '" + path + "' AS " + SCHEMA);
-                applyInitialSchema(connection, statement);
+                applyMigrations(connection, statement);
             }
             return new SqliteProcessStore(connection);
         } catch (Exception error) {
@@ -86,9 +87,10 @@ public final class SqliteProcessStore implements ProcessStore, AutoCloseable {
                 upsert.setString(7, record.owner().toString());
                 upsert.setLong(8, record.revision());
                 upsert.setInt(9, record.step());
-                upsert.setString(10, record.state().name());
-                if (record.reservationState() == null) upsert.setNull(11, Types.VARCHAR);
-                else upsert.setString(11, record.reservationState().name());
+                upsert.setInt(10, record.stepTicks());
+                upsert.setString(11, record.state().name());
+                if (record.reservationState() == null) upsert.setNull(12, Types.VARCHAR);
+                else upsert.setString(12, record.reservationState().name());
                 upsert.executeUpdate();
                 deleteClaims.setString(1, record.instanceId().toString());
                 deleteClaims.executeUpdate();
@@ -172,6 +174,7 @@ public final class SqliteProcessStore implements ProcessStore, AutoCloseable {
                         UUID.fromString(rows.getString("owner")),
                         rows.getLong("revision"),
                         rows.getInt("step"),
+                        rows.getInt("step_ticks"),
                         ProcessState.valueOf(rows.getString("state")),
                         reservation == null ? null : Reservation.State.valueOf(reservation),
                         loadClaims(instanceId),
@@ -327,30 +330,43 @@ public final class SqliteProcessStore implements ProcessStore, AutoCloseable {
         return out.toString();
     }
 
-    private static void applyInitialSchema(Connection connection, Statement statement) throws SQLException {
-        if (schemaVersionMissing(connection)) {
-            for (String part : INITIAL_SCHEMA.split(";")) {
-                String sql = part.strip();
-                if (!sql.isEmpty()) statement.execute(sql);
-            }
+    private static void applyMigrations(Connection connection, Statement statement) throws SQLException {
+        int version = schemaVersion(connection);
+        if (version < 1) {
+            executeScript(statement, INITIAL_SCHEMA);
+            writeSchemaVersion(connection, 1);
+            version = 1;
         }
+        if (version < 2) {
+            executeScript(statement, STEP_TICKS_SCHEMA);
+            writeSchemaVersion(connection, 2);
+        }
+    }
+
+    private static void executeScript(Statement statement, String script) throws SQLException {
+        for (String part : script.split(";")) {
+            String sql = part.strip();
+            if (!sql.isEmpty()) statement.execute(sql);
+        }
+    }
+
+    private static void writeSchemaVersion(Connection connection, int version) throws SQLException {
         try (PreparedStatement upsert = connection.prepareStatement(UPSERT_SCHEMA_VERSION)) {
             upsert.setString(1, SCHEMA);
-            upsert.setInt(2, 1);
+            upsert.setInt(2, version);
             upsert.executeUpdate();
         }
     }
 
-    private static boolean schemaVersionMissing(Connection connection) {
+    private static int schemaVersion(Connection connection) {
         try (PreparedStatement select = connection.prepareStatement(SELECT_SCHEMA_VERSION)) {
             select.setString(1, SCHEMA);
             try (ResultSet rows = select.executeQuery()) {
-                if (!rows.next()) return true;
-                String version = rows.getString(1);
-                return version == null || version.isBlank();
+                if (!rows.next()) return 0;
+                return rows.getInt(1);
             }
         } catch (SQLException ignored) {
-            return true;
+            return 0;
         }
     }
 }

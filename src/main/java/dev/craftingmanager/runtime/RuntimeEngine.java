@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
     private final ProcessStore store;
@@ -39,6 +40,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
     private final Map<UUID, Instance> instances = new HashMap<>();
     private final Map<BlockKey, UUID> activeByBlock = new HashMap<>();
     private final Map<BlockKey, Map<String, ItemSnapshot>> stationPorts = new HashMap<>();
+    private Predicate<BlockKey> chunkLoaded = key -> true;
 
     public RuntimeEngine() {
         this(ProcessStore.none());
@@ -55,6 +57,10 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
 
     public void onLockableRegistered(Consumer<String> listener) {
         this.lockableRegistered = listener == null ? material -> {} : listener;
+    }
+
+    public synchronized void setChunkLoaded(Predicate<BlockKey> chunkLoaded) {
+        this.chunkLoaded = chunkLoaded == null ? key -> true : chunkLoaded;
     }
 
     @Override public synchronized RegistrationHandle registerProcess(ProcessDefinition definition) {
@@ -294,11 +300,45 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         Instance instance = instances.get(instanceId);
         if (instance == null) return CompletableFuture.failedStage(new IllegalArgumentException("unknown instance"));
         if (instance.state != ProcessState.RUNNING) return CompletableFuture.completedFuture(instance.state);
-        if (instance.step < instance.definition.steps().size()) {
-            instance.step++;
-            persist(instance);
-            return CompletableFuture.completedFuture(instance.state);
+        if (!chunkLoaded.test(instance.block)) return CompletableFuture.completedFuture(instance.state);
+        return CompletableFuture.completedFuture(tickRunning(instance));
+    }
+
+    public synchronized void tick() {
+        for (Instance instance : List.copyOf(instances.values())) {
+            if (instance.state != ProcessState.RUNNING) continue;
+            if (!chunkLoaded.test(instance.block)) continue;
+            tickRunning(instance);
         }
+    }
+
+    public synchronized void persistChunk(UUID worldId, int chunkX, int chunkZ) {
+        Objects.requireNonNull(worldId);
+        for (Instance instance : instances.values()) {
+            if (!instance.block.worldId().equals(worldId)) continue;
+            if (Math.floorDiv(instance.block.x(), 16) != chunkX) continue;
+            if (Math.floorDiv(instance.block.z(), 16) != chunkZ) continue;
+            persist(instance);
+        }
+    }
+
+    private ProcessState tickRunning(Instance instance) {
+        List<ProcessStep> steps = instance.definition.steps();
+        if (instance.step >= steps.size()) return applyEffects(instance);
+        ProcessStep current = steps.get(instance.step);
+        instance.stepTicks++;
+        boolean persistNow = instance.stepTicks % 20 == 0;
+        if (instance.stepTicks >= current.durationTicks()) {
+            instance.step++;
+            instance.stepTicks = 0;
+            persistNow = true;
+            if (instance.step >= steps.size()) return applyEffects(instance);
+        }
+        if (persistNow) persist(instance);
+        return instance.state;
+    }
+
+    private ProcessState applyEffects(Instance instance) {
         instance.state = ProcessState.OUTPUT_PENDING;
         for (int i = 0; i < instance.definition.effects().size(); i++) {
             if (instance.ledger.get(i) == EffectExecutionState.APPLIED) continue;
@@ -308,7 +348,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
                 instance.state = ProcessState.NEEDS_PROVIDER_ACTION;
                 persist(instance);
                 emitFinished(instance);
-                return CompletableFuture.completedFuture(instance.state);
+                return instance.state;
             }
             String effectId = effectId(instance, i);
             try {
@@ -321,21 +361,21 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
                 instance.state = ProcessState.NEEDS_PROVIDER_ACTION;
                 persist(instance);
                 emitFinished(instance);
-                return CompletableFuture.completedFuture(instance.state);
+                return instance.state;
             }
         }
         if (!returnClaims(instance, ConsumptionPolicy.RETURN_ON_SUCCESS, ConsumptionPolicy.RETURN_ALWAYS)) {
             instance.state = ProcessState.NEEDS_PROVIDER_ACTION;
             persist(instance);
             emitFinished(instance);
-            return CompletableFuture.completedFuture(instance.state);
+            return instance.state;
         }
         instance.state = ProcessState.COMPLETED;
         activeByBlock.remove(instance.block, instance.id);
         if (instance.reservationState != null) instance.reservationState = Reservation.State.CONSUMED;
         persist(instance);
         emitFinished(instance);
-        return CompletableFuture.completedFuture(instance.state);
+        return instance.state;
     }
 
     public synchronized void hydrate() {
@@ -399,6 +439,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         Instance instance = new Instance(record.instanceId(), record.block(), definition, record.owner(), adapter, record.claims());
         instance.revision = record.revision();
         instance.step = record.step();
+        instance.stepTicks = record.stepTicks();
         instance.state = state;
         instance.reservationState = record.reservationState();
         for (int i = 0; i < record.ledger().size(); i++) {
@@ -437,7 +478,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         }
         store.save(new ProcessInstanceRecord(
                 instance.id, instance.block, instance.definition.id(), instance.owner, instance.revision,
-                instance.step, instance.state, instance.reservationState, instance.claims, ledger));
+                instance.step, instance.stepTicks, instance.state, instance.reservationState, instance.claims, ledger));
     }
 
     private void unregisterHandler(String type, EffectHandler<?> handler) {
@@ -603,6 +644,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         final List<Reservation.Claim> claims;
         final Map<Integer, EffectExecutionState> ledger = new HashMap<>();
         int step;
+        int stepTicks;
         long revision;
         ProcessState state = ProcessState.CREATED;
         Reservation.State reservationState;

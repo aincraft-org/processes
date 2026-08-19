@@ -15,6 +15,7 @@ public record ProcessInstanceRecord(
         UUID owner,
         long revision,
         int step,
+        int stepTicks,
         ProcessState state,
         Reservation.State reservationState,
         List<Reservation.Claim> claims,
@@ -23,6 +24,7 @@ public record ProcessInstanceRecord(
         if (instanceId == null || block == null || processId == null || processId.isBlank() || owner == null || state == null) {
             throw new IllegalArgumentException("process instance identity is required");
         }
+        if (stepTicks < 0) throw new IllegalArgumentException("stepTicks cannot be negative");
         claims = List.copyOf(claims == null ? List.of() : claims);
         ledger = List.copyOf(ledger == null ? List.of() : ledger);
     }

@@ -33,9 +33,11 @@ class ExampleProcessProviderTest {
         CraftingManagerApi.ProcessStartResult result = engine.start(
                 block, ExampleProcessProvider.PROCESS_ID, owner);
         assertTrue(result.started(), result.reason());
-        engine.advance(result.instanceId()).toCompletableFuture().join();
-        engine.advance(result.instanceId()).toCompletableFuture().join();
-        assertEquals(ProcessState.COMPLETED, engine.advance(result.instanceId()).toCompletableFuture().join());
+        ProcessState state = ProcessState.RUNNING;
+        for (int i = 0; i < 200 && state == ProcessState.RUNNING; i++) {
+            state = engine.advance(result.instanceId()).toCompletableFuture().join();
+        }
+        assertEquals(ProcessState.COMPLETED, state);
         assertEquals(new ItemSnapshot("IRON_NUGGET", 1, null),
                 engine.extractAt(block, ProcessFace.DOWN, 1).orElseThrow());
         provider.disable();

@@ -5,7 +5,9 @@ import dev.craftingmanager.api.Domain.BlockKey;
 import dev.craftingmanager.api.Domain.CompletionEffect;
 import dev.craftingmanager.api.Domain.ProcessDefinition;
 import dev.craftingmanager.api.Domain.ProcessState;
+import dev.craftingmanager.api.Domain.ProcessStep;
 import dev.craftingmanager.api.EffectHandler;
+import dev.craftingmanager.persistence.ProcessInstanceRecord;
 import dev.craftingmanager.persistence.SqliteProcessStore;
 import dev.craftingmanager.runtime.RuntimeEngine;
 import org.junit.jupiter.api.Test;
@@ -44,6 +46,61 @@ class ProcessRestartTest {
         }
     }
 
+    @Test void resumesMidStepProgressAfterRestartWithoutCatchUp() throws Exception {
+        Path db = temp.resolve("craftingmanager.db");
+        BlockKey block = new BlockKey(UUID.randomUUID(), 4, 70, 4);
+        UUID instanceId;
+        try (SqliteProcessStore store = SqliteProcessStore.open(db)) {
+            RuntimeEngine engine = engine(store, new ProcessStep("heat", "Heat", 3));
+            instanceId = start(engine, block);
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            engine.shutdown();
+        }
+        try (SqliteProcessStore store = SqliteProcessStore.open(db)) {
+            RuntimeEngine engine = engine(store, new ProcessStep("heat", "Heat", 3));
+            engine.hydrate();
+            assertEquals(ProcessState.RUNNING, engine.state(instanceId).orElseThrow());
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            assertEquals(ProcessState.COMPLETED, engine.advance(instanceId).toCompletableFuture().join());
+        }
+    }
+
+    @Test void persistChunkFlushesMidStepProgress() throws Exception {
+        Path db = temp.resolve("craftingmanager.db");
+        BlockKey block = new BlockKey(UUID.randomUUID(), 16, 70, 32);
+        UUID instanceId;
+        try (SqliteProcessStore store = SqliteProcessStore.open(db)) {
+            RuntimeEngine engine = engine(store, new ProcessStep("heat", "Heat", 3));
+            instanceId = start(engine, block);
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            engine.persistChunk(block.worldId(), Math.floorDiv(block.x(), 16), Math.floorDiv(block.z(), 16));
+        }
+        try (SqliteProcessStore store = SqliteProcessStore.open(db)) {
+            RuntimeEngine engine = engine(store, new ProcessStep("heat", "Heat", 3));
+            engine.hydrate();
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            assertEquals(ProcessState.COMPLETED, engine.advance(instanceId).toCompletableFuture().join());
+        }
+    }
+
+    @Test void persistsStepTicksEveryTwentyProgressTicks() throws Exception {
+        Path db = temp.resolve("craftingmanager.db");
+        BlockKey block = new BlockKey(UUID.randomUUID(), 8, 70, 8);
+        UUID instanceId;
+        try (SqliteProcessStore store = SqliteProcessStore.open(db)) {
+            RuntimeEngine engine = engine(store, new ProcessStep("heat", "Heat", 40));
+            instanceId = start(engine, block);
+            for (int i = 0; i < 19; i++) {
+                assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            }
+            assertEquals(0, store.loadAll().getFirst().stepTicks());
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            ProcessInstanceRecord saved = store.loadAll().getFirst();
+            assertEquals(instanceId, saved.instanceId());
+            assertEquals(20, saved.stepTicks());
+        }
+    }
+
     @Test void parksInstanceWhenDefinitionMissingAfterRestart() throws Exception {
         Path db = temp.resolve("craftingmanager.db");
         BlockKey block = new BlockKey(UUID.randomUUID(), 0, 1, 0);
@@ -59,6 +116,20 @@ class ProcessRestartTest {
             engine.hydrate();
             assertEquals(ProcessState.NEEDS_PROVIDER_ACTION, engine.state(instanceId).orElseThrow());
         }
+    }
+
+    private static RuntimeEngine engine(SqliteProcessStore store, ProcessStep... steps) {
+        RuntimeEngine engine = new RuntimeEngine(store);
+        engine.registerEffectHandler(handler());
+        engine.registerProcess(new ProcessDefinition("forge", List.of(), List.of(steps),
+                List.of((CompletionEffect) () -> "item-output")));
+        return engine;
+    }
+
+    private static UUID start(RuntimeEngine engine, BlockKey block) {
+        CraftingManagerApi.ProcessStartResult started = engine.start(block, "forge", UUID.randomUUID());
+        assertTrue(started.started(), started.reason());
+        return started.instanceId();
     }
 
     private static ProcessDefinition definition() {

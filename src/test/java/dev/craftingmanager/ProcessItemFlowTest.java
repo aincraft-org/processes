@@ -42,7 +42,6 @@ class ProcessItemFlowTest {
         assertTrue(started.started(), started.reason());
         assertNull(vault.open(owner, 9).get(0));
         assertNull(vault.open(owner, 9).get(1));
-        engine.advance(started.instanceId()).toCompletableFuture().join();
         assertEquals(ProcessState.COMPLETED, engine.advance(started.instanceId()).toCompletableFuture().join());
         assertEquals(new ItemSnapshot("IRON_NUGGET", 1, null), vault.open(owner, 9).get(0));
     }

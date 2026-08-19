@@ -231,7 +231,7 @@ class FirstPartyExamplesTest {
 
     private static ProcessState complete(RuntimeEngine engine, UUID instanceId) {
         ProcessState state = null;
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 256; i++) {
             state = engine.advance(instanceId).toCompletableFuture().join();
             if (state != ProcessState.RUNNING) return state;
         }

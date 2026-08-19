@@ -38,9 +38,7 @@ class RuntimeEngineTest {
         CraftingManagerApi.ProcessStartResult result = engine.start(new BlockKey(UUID.randomUUID(), 0, 0, 0), "forge", UUID.randomUUID());
         assertTrue(result.started());
         assertEquals(ProcessState.RUNNING, engine.state(result.instanceId()).orElseThrow());
-        engine.advance(result.instanceId()).toCompletableFuture().join();
-        assertEquals(ProcessState.RUNNING, engine.state(result.instanceId()).orElseThrow());
-        engine.advance(result.instanceId()).toCompletableFuture().join();
+        assertEquals(ProcessState.COMPLETED, engine.advance(result.instanceId()).toCompletableFuture().join());
         assertEquals(ProcessState.COMPLETED, engine.state(result.instanceId()).orElseThrow());
     }
 

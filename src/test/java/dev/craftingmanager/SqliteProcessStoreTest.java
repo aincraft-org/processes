@@ -38,7 +38,25 @@ class SqliteProcessStoreTest {
                     "process_instances",
                     "reservations",
                     "schema_version"), tableNames(store));
+            try (var statement = store.connection().prepareStatement(
+                    "SELECT version FROM craftingmanager.schema_version WHERE schema = ?")) {
+                statement.setString(1, SqliteProcessStore.SCHEMA);
+                try (var rows = statement.executeQuery()) {
+                    assertTrue(rows.next());
+                    assertEquals(2, rows.getInt(1));
+                }
+            }
+            try (Statement statement = store.connection().createStatement();
+                 ResultSet columns = statement.executeQuery(
+                         "PRAGMA craftingmanager.table_info(process_instances)")) {
+                Set<String> names = new TreeSet<>();
+                while (columns.next()) names.add(columns.getString("name"));
+                assertTrue(names.contains("step_ticks"));
+            }
         }
+        String v002 = SqlStatements.load("migrations/V002__step_ticks.sql", SqliteProcessStore.SCHEMA);
+        assertTrue(v002.contains("ALTER TABLE craftingmanager.process_instances ADD COLUMN step_ticks"));
+        assertFalse(v002.contains("ALTER TABLE process_instances"));
         String ddl = SqlStatements.load("migrations/V001__initial.sql", SqliteProcessStore.SCHEMA);
         assertTrue(ddl.contains("CREATE TABLE IF NOT EXISTS craftingmanager.process_instances"));
         assertTrue(ddl.contains("CREATE TABLE IF NOT EXISTS craftingmanager.reservations"));
@@ -57,6 +75,32 @@ class SqliteProcessStoreTest {
         assertTrue(source.contains("ATTACH DATABASE"));
     }
 
+    @Test void upgradesV001DatabaseWithStepTicksColumn() throws Exception {
+        Path db = temp.resolve("legacy.db");
+        Class.forName("org.sqlite.JDBC");
+        try (Connection connection = java.sql.DriverManager.getConnection("jdbc:sqlite:")) {
+            String path = db.toAbsolutePath().toString().replace("'", "''");
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("ATTACH DATABASE '" + path + "' AS craftingmanager");
+                for (String part : SqlStatements.load("migrations/V001__initial.sql", "craftingmanager").split(";")) {
+                    String sql = part.strip();
+                    if (!sql.isEmpty()) statement.execute(sql);
+                }
+                statement.execute(
+                        "INSERT OR REPLACE INTO craftingmanager.schema_version(schema, version) VALUES ('craftingmanager', 1)");
+            }
+        }
+        try (SqliteProcessStore store = SqliteProcessStore.open(db)) {
+            ProcessInstanceRecord record = new ProcessInstanceRecord(
+                    UUID.fromString("11111111-1111-1111-1111-111111111111"),
+                    new BlockKey(UUID.fromString("22222222-2222-2222-2222-222222222222"), 0, 64, 0),
+                    "forge", UUID.fromString("33333333-3333-3333-3333-333333333333"),
+                    1, 0, 11, ProcessState.RUNNING, null, List.of(), List.of());
+            store.save(record);
+            assertEquals(11, store.loadAll().getFirst().stepTicks());
+        }
+    }
+
     @Test void sqlStatementsReplaceSchemaAndRejectUnsafeNames() {
         assertEquals(
                 "DELETE FROM craftingmanager.reservations WHERE instance_id = ?",
@@ -73,7 +117,7 @@ class SqliteProcessStoreTest {
         BlockKey block = new BlockKey(UUID.fromString("22222222-2222-2222-2222-222222222222"), 1, 64, -3);
         UUID owner = UUID.fromString("33333333-3333-3333-3333-333333333333");
         ProcessInstanceRecord record = new ProcessInstanceRecord(
-                instanceId, block, "craftingmanager:alloy-smelt", owner, 2, 1,
+                instanceId, block, "craftingmanager:alloy-smelt", owner, 2, 1, 7,
                 ProcessState.RUNNING, Reservation.State.RESERVED,
                 List.of(new Reservation.Claim(
                         Reservation.Source.PLAYER_INVENTORY, 0,
@@ -90,6 +134,7 @@ class SqliteProcessStoreTest {
             assertEquals(record.block(), loaded.block());
             assertEquals(record.processId(), loaded.processId());
             assertEquals(record.state(), loaded.state());
+            assertEquals(7, loaded.stepTicks());
             assertEquals(record.claims(), loaded.claims());
             assertEquals(record.ledger(), loaded.ledger());
             assertEquals("craftingmanager:alloy-smelter", store.loadBlocks().getFirst().definitionId());
@@ -98,8 +143,7 @@ class SqliteProcessStoreTest {
     }
 
     private static Set<String> tableNames(SqliteProcessStore store) throws Exception {
-        try (Connection connection = store.connection();
-             Statement statement = connection.createStatement();
+        try (Statement statement = store.connection().createStatement();
              ResultSet result = statement.executeQuery(
                      "SELECT name FROM craftingmanager.sqlite_master WHERE type='table'")) {
             Set<String> names = new TreeSet<>();
