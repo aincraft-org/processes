@@ -6,7 +6,7 @@
 - Add Paper API and test dependencies.
 - Add `plugin.yml` with main class and API version.
 - Add the plugin main class and lifecycle hooks.
-- Do not add `config.yml` or persistence directories.
+- Do not add `config.yml` or user recipe files.
 
 ## Phase 2: Public API and domain
 
@@ -26,7 +26,7 @@
 - Implement in-memory effect-handler registry.
 - Reject duplicate registrations.
 - Track active references so handler unregister policies are explicit.
-- Clear all registries on plugin disable.
+- Clear live registries on plugin disable; persist instance rows first.
 
 ## Phase 4: Process execution
 
@@ -75,9 +75,17 @@
 - Build the plugin.
 - Run a Paper smoke test if a Paper runtime is available.
 
+## Phase 8: Useful runtime dependency
+
+- Add SQLite with schema `craftingmanager` and qualified tables: `schema_version`, `process_instances`, `reservations`, `effect_ledger`, `functional_blocks`.
+- Persist and restore instances across restart.
+- Implement the live recipe registry and matcher.
+- Enable the first-party alloy smelter on plugin enable.
+- Persist first-party station placements.
+
 ## Non-goals for the core plugin
 
-Do not implement configuration loading, recipe editing commands, YAML/JSON/SQLite persistence, restart recovery, cross-server synchronization, or provider-owned data storage.
+Do not implement configuration loading, recipe editing commands, user recipe YAML/JSON, or cross-server synchronization. Core SQLite instance persistence is required.
 
 ## Delivery checkpoints
 

@@ -2,16 +2,16 @@
 
 ## Project
 
-Crafting Manager is a configless, stateless Paper Minecraft plugin. It provides a runtime SPI for provider plugins that define recipes, ordered processes, functional blocks, and completion effects.
+Crafting Manager is a Paper Minecraft manufacturing runtime. Other plugins depend on it to register recipes, processes, functional blocks, and completion effects. The core also enables a first-party alloy smelter and owns SQLite instance persistence.
 
 ## Non-negotiable boundaries
 
 - Use Java and Gradle with Paper API.
-- Include Paper metadata in `plugin.yml`; do not create `config.yml`.
-- Do not add YAML, JSON, SQLite, or other plugin-owned definition/persistence storage.
-- Definitions, player-specific data, and durable state belong to provider plugins.
-- Core registries and process instances are in-memory only and are cleared on disable/restart.
-- Providers must register definitions and handlers on every enable and close registration handles on disable.
+- Include Paper metadata in `plugin.yml`; do not create `config.yml` or user recipe files.
+- Core owns SQLite for process instances, reservations, ledgers, and first-party station placements.
+- Every SQL object is schema-qualified `craftingmanager.<table>` (never a bare table name).
+- Providers own extra definitions and re-register them on every enable; close handles on disable.
+- Live registries stay in memory; durable instance rows survive restart. Missing definitions become `NEEDS_PROVIDER_ACTION`.
 - Never assume arbitrary blocks support `PersistentDataContainer`.
 - Use `BlockKey(UUID worldId, int x, int y, int z)` for runtime block identity.
 - Perform Bukkit inventory/world mutations on the main thread.
@@ -32,7 +32,7 @@ Crafting Manager is a configless, stateless Paper Minecraft plugin. It provides 
 ## Implementation workflow
 
 1. Read the relevant specification and living spec before changing behavior.
-2. Reuse existing patterns; avoid introducing configuration or persistence.
+2. Reuse existing patterns; do not add user configuration or a second recipe file format.
 3. Keep API/domain objects immutable where practical.
 4. Validate registrations structurally and reject duplicate IDs/types.
 5. Add focused tests for every new observable contract.
@@ -41,8 +41,8 @@ Crafting Manager is a configless, stateless Paper Minecraft plugin. It provides 
 
 ## Paper integration boundary
 
-Paper listeners must not infer provider content or hard-code process IDs. Providers select the process through the SPI; listeners may only translate Bukkit events into validated runtime inputs such as `BlockKey`.
+Paper listeners must not infer third-party content or hard-code provider process IDs. The core plugin may register its first-party alloy smelter on enable. Listeners still only translate Bukkit events into validated runtime inputs such as `BlockKey`; process selection stays on the SPI/trigger path.
 
 ## Scope discipline
 
-Do not add recipe editors, configuration commands, databases, restart recovery, cross-server synchronization, or provider-owned persistence to the core plugin unless the project specification is explicitly changed.
+Do not add recipe editors, configuration commands, user recipe files, or cross-server synchronization unless the project specification is explicitly changed. Core SQLite and restart recovery of instances are in scope.
