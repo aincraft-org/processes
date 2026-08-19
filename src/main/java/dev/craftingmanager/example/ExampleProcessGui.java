@@ -28,6 +28,7 @@ public final class ExampleProcessGui {
     private final BlockKey block;
     private final UUID owner;
     private final String processId;
+    private final Screen screen;
     private Inventory inventory;
     private String message;
 
@@ -36,12 +37,17 @@ public final class ExampleProcessGui {
         this.block = Objects.requireNonNull(block);
         this.owner = Objects.requireNonNull(owner);
         this.processId = requireText(processId, "processId");
+        this.screen = screenFor(this.processId);
+    }
+
+    public String title() {
+        return screen.title();
     }
 
     public void open(Player player) {
         Objects.requireNonNull(player);
         if (!player.getUniqueId().equals(owner)) throw new IllegalArgumentException("player does not own this GUI");
-        inventory = Bukkit.createInventory(null, SIZE, TITLE);
+        inventory = Bukkit.createInventory(null, SIZE, screen.title());
         render();
         player.openInventory(inventory);
     }
@@ -76,24 +82,48 @@ public final class ExampleProcessGui {
     private void render() {
         if (inventory == null) return;
         inventory.clear();
-        inventory.setItem(IRON_SLOT, item(Material.IRON_INGOT, "Iron input", List.of("Required: 1"), IRON_SLOT));
-        inventory.setItem(COAL_SLOT, item(Material.COAL, "Coal fuel", List.of("Required: 1"), COAL_SLOT));
-        inventory.setItem(OUTPUT_SLOT, item(Material.IRON_NUGGET, "Alloy output", List.of("Preview"), OUTPUT_SLOT));
-        inventory.setItem(START_SLOT, item(Material.LIME_CONCRETE, "Start process", List.of("Click to begin"), START_SLOT));
+        for (Slot slot : screen.slots()) {
+            inventory.setItem(slot.index(), item(slot.material(), slot.name(), slot.lore(), slot.itemModel()));
+        }
+        inventory.setItem(START_SLOT, item(Material.LIME_CONCRETE, "Start process", List.of("Click to begin"),
+                "craftingmanager:start_process"));
     }
 
-    private static ItemStack item(Material material, String name, List<String> lore, int slot) {
+    private static ItemStack item(Material material, String name, List<String> lore, String model) {
         ItemStack stack = new ItemStack(material);
         ItemMeta meta = stack.getItemMeta();
         meta.setDisplayName(name);
         meta.setLore(lore);
         stack.setItemMeta(meta);
-        String model = itemModel(slot);
         if (model != null) {
             stack.setData(DataComponentTypes.ITEM_MODEL, Key.key(model));
         }
         return stack;
     }
+
+    private static Screen screenFor(String processId) {
+        if (ExtraProcessProvider.POLISH_PROCESS_ID.equals(processId)) {
+            return new Screen("Gem Polisher", List.of(
+                    new Slot(10, Material.AMETHYST_SHARD, "Rough gem", List.of("Required: 1"), null),
+                    new Slot(12, Material.IRON_PICKAXE, "Polishing tool", List.of("Returned on success"), null),
+                    new Slot(14, Material.QUARTZ, "Polished gem", List.of("Preview"), null)));
+        }
+        if (ExtraProcessProvider.MIX_PROCESS_ID.equals(processId)) {
+            return new Screen("Tonic Mixer", List.of(
+                    new Slot(10, Material.REDSTONE, "Base", List.of("Required: 1"), null),
+                    new Slot(11, Material.GLOWSTONE_DUST, "Reagent", List.of("Required: 1"), null),
+                    new Slot(12, Material.BLAZE_POWDER, "Catalyst", List.of("Returned always"), null),
+                    new Slot(13, Material.SUGAR, "Additive", List.of("Optional"), null),
+                    new Slot(14, Material.GLOW_INK_SAC, "Mixed tonic", List.of("Preview"), null)));
+        }
+        return new Screen(TITLE, List.of(
+                new Slot(IRON_SLOT, Material.IRON_INGOT, "Iron input", List.of("Required: 1"), itemModel(IRON_SLOT)),
+                new Slot(COAL_SLOT, Material.COAL, "Coal fuel", List.of("Required: 1"), itemModel(COAL_SLOT)),
+                new Slot(OUTPUT_SLOT, Material.IRON_NUGGET, "Alloy output", List.of("Preview"), itemModel(OUTPUT_SLOT))));
+    }
+
+    private record Screen(String title, List<Slot> slots) {}
+    private record Slot(int index, Material material, String name, List<String> lore, String itemModel) {}
 
     private static String requireText(String value, String field) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " is required");

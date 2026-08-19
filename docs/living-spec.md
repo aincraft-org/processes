@@ -17,7 +17,7 @@ Success looks like: professions / chemistry / furniture plugins compile against 
 - Runtime SPI for recipes, processes, functional blocks, and completion effects.
 - Recipe matching (free-form, pattern, process-backed).
 - Process execution, reservations, and the completion ledger.
-- First-party default station: alloy smelter (enabled on plugin enable).
+- First-party default stations: alloy smelter, gem polisher, and tonic mixer (enabled on plugin enable).
 - Plugin-owned SQLite for **instance and station** state, namespaced `craftingmanager.<table>`.
 - CustomPack item models for first-party GUI/station display.
 - Paper interaction and block-lifecycle invalidation.
@@ -51,7 +51,7 @@ Success looks like: professions / chemistry / furniture plugins compile against 
 - Public SPI stays CustomPack-type-free. First-party models live under `src/main/item-models/<id>/` and compile into `META-INF/custompack/`.
 - Persistence is a core module, not a provider. Default file: plugin data folder SQLite. No `config.yml`.
 - Table names: `craftingmanager.schema_version`, `craftingmanager.process_instances`, `craftingmanager.reservations`, `craftingmanager.effect_ledger`, `craftingmanager.functional_blocks`. Always qualify in SQL (`CREATE TABLE IF NOT EXISTS craftingmanager.process_instances ...`).
-- Register the first-party alloy smelter on enable (`example:alloy-smelt` or a stable `craftingmanager:alloy-smelt` id). Demo code that is never registered is not a product.
+- Register first-party stations on enable (`craftingmanager:alloy-smelt`, `craftingmanager:gem-polish`, `craftingmanager:mix-tonic`). Demo code that is never registered is not a product.
 - Recipe matching is core. `RecipeApi` types must have a registry and matcher, not only records.
 - Item take/give is abstract: processes declare `ProcessInput` + `ItemOutput` snapshots. Do not put alloy-specific consume/grant logic in `RuntimeEngine`. Paper `PlayerItemVault` is one `ItemVault`; tests use `MapItemVault`.
 - Hopper I/O is abstract face routing: `ProcessInput.insertFaces` and `ItemOutput.extractFaces`. `insertAt`/`extractAt` match those ports. Paper hoppers only translate `BlockFace` → `ProcessFace`.
@@ -72,13 +72,15 @@ Shipped kernel (still in-memory only until Next lands):
 - [x] Persist and restore process instances, reservations, and effect ledgers across restart.
 - [x] Live recipe registry and matcher on `CraftingManagerApi`.
 - [x] Enable first-party alloy smelter on plugin enable (`craftingmanager:alloy-smelt`).
+- [x] First-party gem polisher (`craftingmanager:gem-polish`) on grindstone: `TOOL` + `RETURN_ON_SUCCESS`, hopper faces NORTH rough / UP tool / WEST output.
+- [x] First-party tonic mixer (`craftingmanager:mix-tonic`) on cauldron: `SECONDARY_MATERIAL` + optional `ADDITIVE` + `CATALYST` `RETURN_ALWAYS`, hopper faces EAST/WEST/UP/SOUTH in and NORTH out.
 - [x] Persist first-party functional-block placements (`craftingmanager.functional_blocks`).
 - [x] Generic item I/O: `ItemOutput` effect, `ItemVault`/`SlotInventoryAdapter`, required-input coverage. First-party smelter is only a process definition.
 - [x] Process face ports for hopper I/O (`insertFaces` / `extractFaces`). First-party smelter: UP iron, sides fuel, DOWN output.
 
 ### Current notes
 
-Private DB file `plugins/CraftingManager/craftingmanager.db`. First-party station is a placed blast furnace. Paper 26.2; CustomPack models still softdepend.
+Private DB file `plugins/CraftingManager/craftingmanager.db`. First-party stations are a placed blast furnace (alloy smelter), grindstone (gem polisher), and cauldron (tonic mixer). Paper 26.2; CustomPack models still softdepend.
 
 ## Next
 
@@ -104,9 +106,11 @@ Private DB file `plugins/CraftingManager/craftingmanager.db`. First-party statio
 | 2026-08-19 | Core is a useful runtime dependency, not an empty kernel | A dependable manufacturing host must run a default station, match recipes, and recover instances. Providers add content; they do not rebuild the factory. |
 | 2026-08-19 | Core owns SQLite instance state; tables are `craftingmanager.<name>` | Restart recovery cannot be optional if other plugins depend on this. Schema prefix avoids collisions in a shared server DB. |
 | 2026-08-19 | First-party alloy smelter is enabled product, not dead example code | Proves the SPI and gives the machine people expect from this plugin. |
+| 2026-08-19 | Extra first-party examples are a gem polisher and tonic mixer, not a vanilla-machine catalog | Prove unused input roles, return policies, and hopper faces without copying the smelter. |
 | 2026-08-19 | Still no user recipe `config.yml` | Definitions stay code/SPI. Persistence is instances, not a YAML recipe book. |
 
 ## Open questions
 
 - [x] Shared server SQLite vs plugin-private file — private `plugins/CraftingManager/craftingmanager.db`.
 - [x] First-party process id — `craftingmanager:alloy-smelt`.
+- [x] Extra first-party process ids — `craftingmanager:gem-polish` and `craftingmanager:mix-tonic`.

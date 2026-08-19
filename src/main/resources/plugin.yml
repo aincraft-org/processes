@@ -2,6 +2,6 @@ name: CraftingManager
 version: '${version}'
 main: dev.craftingmanager.CraftingManagerPlugin
 api-version: '26.2'
-description: Manufacturing runtime with first-party alloy smelter and process persistence
+description: Manufacturing runtime with first-party stations and process persistence
 softdepend:
   - CustomPack

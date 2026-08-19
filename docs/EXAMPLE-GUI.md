@@ -1,10 +1,10 @@
 # Example Process GUI
 
-The `dev.craftingmanager.example` package is the first-party alloy smelter. It is only a process definition (`craftingmanager:alloy-smelt`) plus this GUI. Consume/grant go through the generic `ItemVault` / `ItemOutput` SPI. Placing a blast furnace persists `craftingmanager.functional_blocks`; right-click opens this GUI. Start can take iron + coal from the player. Hoppers insert iron from above and fuel from the sides; they extract alloy from below (`ProcessFace` ports on the process definition).
+The `dev.craftingmanager.example` package is the first-party stations. Each is a process definition plus this start GUI. Consume/grant go through the generic `ItemVault` / `ItemOutput` SPI. Placing a blast furnace, grindstone, or cauldron persists `craftingmanager.functional_blocks`; right-click opens the matching GUI. The alloy smelter (`craftingmanager:alloy-smelt`) takes iron + coal. The gem polisher (`craftingmanager:gem-polish`) takes a rough gem plus a returned tool. The tonic mixer (`craftingmanager:mix-tonic`) takes two reagents, a returned catalyst, and an optional additive. Hoppers use the `ProcessFace` ports on each process definition.
 
 ## Scope
 
-The example exposes a 27-slot process-selection and input screen for a provider-defined alloy-smelting process. It intentionally does not implement pause, cancel, or progress controls because the current public API exposes process start and advance, but not instance pause/cancel/progress queries.
+Each station exposes a 27-slot input screen for its process. The screens intentionally do not implement pause, cancel, or progress controls because the current public API exposes process start and advance, but not instance pause/cancel/progress queries.
 
 Closing the inventory discards the transient view model. Process instances and station placements are owned by the core runtime (durable after spec Next).
 
@@ -19,11 +19,14 @@ Closing the inventory discards the transient view model. Process instances and s
 
 ## Slots
 
+Alloy smelter:
+
 - Slot 10: iron input summary.
 - Slot 12: coal fuel summary.
 - Slot 14: alloy output preview.
 - Slot 16: start button.
-- All other slots: decorative, non-interactive.
+
+Gem polisher: slots 10/12/14 show rough gem, returned tool, and polished output. Tonic mixer: slots 10–14 show base, reagent, returned catalyst, optional additive, and tonic output. Start is always slot 16. All other slots are decorative and non-interactive.
 
 The example uses immutable `ItemSnapshot` values for displayed input/output summaries. It does not retain mutable Bukkit `ItemStack` instances.
 

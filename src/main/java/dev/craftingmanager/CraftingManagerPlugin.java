@@ -1,9 +1,9 @@
 package dev.craftingmanager;
 
 import dev.craftingmanager.api.CraftingManagerApi;
-import dev.craftingmanager.example.AlloySmelterListener;
 import dev.craftingmanager.example.ExampleGuiListener;
-import dev.craftingmanager.example.ExampleProcessProvider;
+import dev.craftingmanager.example.FirstPartyContent;
+import dev.craftingmanager.example.FirstPartyStationListener;
 import dev.craftingmanager.paper.FunctionalBlockEvents;
 import dev.craftingmanager.paper.HopperIoListener;
 import dev.craftingmanager.paper.PlayerItemVault;
@@ -18,7 +18,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class CraftingManagerPlugin extends JavaPlugin {
     private SqliteProcessStore store;
     private RuntimeEngine engine;
-    private ExampleProcessProvider firstParty;
+    private FirstPartyContent firstParty;
 
     @Override public void onEnable() {
         getDataFolder().mkdirs();
@@ -28,14 +28,14 @@ public final class CraftingManagerPlugin extends JavaPlugin {
         engine.registerInventoryAdapter(new SlotInventoryAdapter(vault));
         engine.registerEffectHandler(new ItemOutputHandler(vault, engine));
         ExampleGuiListener guiListener = new ExampleGuiListener();
-        firstParty = new ExampleProcessProvider(engine, guiListener);
+        firstParty = new FirstPartyContent(engine, guiListener);
         firstParty.enable();
         engine.hydrate();
         getServer().getServicesManager().register(CraftingManagerApi.class, engine, this, ServicePriority.Normal);
         getServer().getPluginManager().registerEvents(new ProcessInteractionListener(engine), this);
         getServer().getPluginManager().registerEvents(new FunctionalBlockEvents(engine::invalidateBlock, engine::invalidateBlock), this);
         getServer().getPluginManager().registerEvents(guiListener, this);
-        getServer().getPluginManager().registerEvents(new AlloySmelterListener(engine, firstParty), this);
+        getServer().getPluginManager().registerEvents(new FirstPartyStationListener(engine, firstParty), this);
         getServer().getPluginManager().registerEvents(new HopperIoListener(engine), this);
     }
 
