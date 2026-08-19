@@ -1,6 +1,7 @@
 package dev.craftingmanager.api;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 public final class Domain {
@@ -19,13 +20,30 @@ public final class Domain {
     public enum EffectExecutionState { PENDING, RUNNING, APPLIED, FAILED, UNKNOWN }
     public enum IdempotencyMode { IDEMPOTENT, PROVIDER_DEDUPLICATES, NON_RETRYABLE }
     public enum UnregisterPolicy { REJECT_WHILE_IN_USE, FAIL_ACTIVE_PROCESSES, CANCEL_ACTIVE_PROCESSES }
+    public enum ProcessFace { UP, DOWN, NORTH, SOUTH, EAST, WEST;
 
-    public record ProcessInput(String id, InputRole role, String matcher, int amount, ConsumptionPolicy consumption, InputTiming timing, boolean optional, String stageId) {
+        public ProcessFace opposite() {
+            return switch (this) {
+                case UP -> DOWN;
+                case DOWN -> UP;
+                case NORTH -> SOUTH;
+                case SOUTH -> NORTH;
+                case EAST -> WEST;
+                case WEST -> EAST;
+            };
+        }
+    }
+
+    public record ProcessInput(String id, InputRole role, String matcher, int amount, ConsumptionPolicy consumption, InputTiming timing, boolean optional, String stageId, Set<ProcessFace> insertFaces) {
+        public ProcessInput(String id, InputRole role, String matcher, int amount, ConsumptionPolicy consumption, InputTiming timing, boolean optional, String stageId) {
+            this(id, role, matcher, amount, consumption, timing, optional, stageId, Set.of());
+        }
         public ProcessInput {
             if (id == null || id.isBlank()) throw new IllegalArgumentException("input id is required");
             if (amount <= 0) throw new IllegalArgumentException("amount must be positive");
             if (matcher == null || matcher.isBlank()) throw new IllegalArgumentException("matcher is required");
             if (timing == InputTiming.BEFORE_STAGE && (stageId == null || stageId.isBlank())) throw new IllegalArgumentException("stageId is required");
+            insertFaces = Set.copyOf(insertFaces == null ? Set.of() : insertFaces);
         }
     }
 
@@ -37,6 +55,17 @@ public final class Domain {
     }
 
     public interface CompletionEffect { String type(); }
+
+    public record ItemOutput(String id, ItemSnapshot item, Set<ProcessFace> extractFaces) implements CompletionEffect {
+        public static final String TYPE = "item-output";
+        public ItemOutput(ItemSnapshot item) { this("output", item, Set.of()); }
+        public ItemOutput {
+            if (id == null || id.isBlank()) throw new IllegalArgumentException("item output id is required");
+            if (item == null) throw new IllegalArgumentException("item output snapshot is required");
+            extractFaces = Set.copyOf(extractFaces == null ? Set.of() : extractFaces);
+        }
+        @Override public String type() { return TYPE; }
+    }
     public record EffectExecution(String effectId, String effectType, EffectExecutionState state) {}
     public record ProcessDefinition(String id, List<ProcessInput> inputs, List<ProcessStep> steps, List<CompletionEffect> effects) {
         public ProcessDefinition {

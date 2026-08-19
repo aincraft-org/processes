@@ -7,4 +7,7 @@ public interface EffectHandler<E extends CompletionEffect> {
     Class<E> effectType();
     default Domain.IdempotencyMode idempotency() { return Domain.IdempotencyMode.IDEMPOTENT; }
     void execute(E effect, String effectId);
+    default void execute(E effect, EffectContext context) {
+        execute(effect, context.effectId());
+    }
 }
