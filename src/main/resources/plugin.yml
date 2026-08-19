@@ -5,3 +5,4 @@ api-version: '26.2'
 description: Manufacturing runtime with first-party stations and process persistence
 softdepend:
   - CustomPack
+  - Bolt

@@ -4,8 +4,11 @@ import dev.craftingmanager.api.CraftingManagerApi;
 import dev.craftingmanager.example.ExampleGuiListener;
 import dev.craftingmanager.example.FirstPartyContent;
 import dev.craftingmanager.example.FirstPartyStationListener;
+import dev.craftingmanager.paper.BoltLockableHook;
+import dev.craftingmanager.paper.BoltProtectionAccess;
 import dev.craftingmanager.paper.FunctionalBlockEvents;
 import dev.craftingmanager.paper.HopperIoListener;
+import dev.craftingmanager.paper.PaperProcessEventSink;
 import dev.craftingmanager.paper.PlayerItemVault;
 import dev.craftingmanager.paper.ProcessInteractionListener;
 import dev.craftingmanager.persistence.SqliteProcessStore;
@@ -19,17 +22,21 @@ public final class CraftingManagerPlugin extends JavaPlugin {
     private SqliteProcessStore store;
     private RuntimeEngine engine;
     private FirstPartyContent firstParty;
+    private BoltLockableHook boltHook;
 
     @Override public void onEnable() {
         getDataFolder().mkdirs();
         store = SqliteProcessStore.open(getDataFolder().toPath().resolve("craftingmanager.db"));
-        engine = new RuntimeEngine(store);
+        engine = new RuntimeEngine(store, new PaperProcessEventSink(new BoltProtectionAccess()));
         PlayerItemVault vault = new PlayerItemVault();
         engine.registerInventoryAdapter(new SlotInventoryAdapter(vault));
         engine.registerEffectHandler(new ItemOutputHandler(vault, engine));
         ExampleGuiListener guiListener = new ExampleGuiListener();
         firstParty = new FirstPartyContent(engine, guiListener);
+        boltHook = new BoltLockableHook(engine);
+        engine.onLockableRegistered(boltHook::register);
         firstParty.enable();
+        boltHook.install();
         engine.hydrate();
         getServer().getServicesManager().register(CraftingManagerApi.class, engine, this, ServicePriority.Normal);
         getServer().getPluginManager().registerEvents(new ProcessInteractionListener(engine), this);
@@ -41,6 +48,7 @@ public final class CraftingManagerPlugin extends JavaPlugin {
 
     @Override public void onDisable() {
         if (firstParty != null) firstParty.disable();
+        if (boltHook != null) boltHook.uninstall();
         if (engine != null) engine.shutdown();
         getServer().getServicesManager().unregister(CraftingManagerApi.class, this);
         if (store != null) store.close();

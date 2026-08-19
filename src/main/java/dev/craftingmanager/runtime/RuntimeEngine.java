@@ -6,7 +6,9 @@ import dev.craftingmanager.api.EffectContext;
 import dev.craftingmanager.api.EffectHandler;
 import dev.craftingmanager.api.InventoryAdapter;
 import dev.craftingmanager.api.ItemSnapshot;
+import dev.craftingmanager.api.ProcessEventSink;
 import dev.craftingmanager.api.ProcessTrigger;
+import dev.craftingmanager.api.ProcessUsage;
 import dev.craftingmanager.api.RecipeApi.Ingredient;
 import dev.craftingmanager.api.RecipeApi.Mode;
 import dev.craftingmanager.api.RecipeApi.PatternDefinition;
@@ -20,11 +22,15 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
     private final ProcessStore store;
+    private final ProcessEventSink events;
+    private Consumer<String> lockableRegistered = material -> {};
     private final Map<String, ProcessDefinition> processes = new HashMap<>();
     private final Map<String, FunctionalBlockDefinition> blocks = new HashMap<>();
+    private final Map<String, Integer> lockableRefCounts = new HashMap<>();
     private final Map<String, RecipeDefinition> recipes = new HashMap<>();
     private final Map<BlockKey, String> registeredBlocks = new HashMap<>();
     private final List<ProcessTrigger> triggers = new ArrayList<>();
@@ -39,7 +45,16 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
     }
 
     public RuntimeEngine(ProcessStore store) {
+        this(store, ProcessEventSink.noop());
+    }
+
+    public RuntimeEngine(ProcessStore store, ProcessEventSink events) {
         this.store = Objects.requireNonNull(store, "store");
+        this.events = events == null ? ProcessEventSink.noop() : events;
+    }
+
+    public void onLockableRegistered(Consumer<String> listener) {
+        this.lockableRegistered = listener == null ? material -> {} : listener;
     }
 
     @Override public synchronized RegistrationHandle registerProcess(ProcessDefinition definition) {
@@ -55,10 +70,30 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         if (blocks.putIfAbsent(definition.id(), definition) != null) {
             throw new IllegalArgumentException("block already registered: " + definition.id());
         }
+        RegistrationHandle lockable = addLockable(definition.material());
         return handle(() -> { synchronized (this) {
+            lockable.close();
             blocks.remove(definition.id(), definition);
             registeredBlocks.values().removeIf(id -> id.equals(definition.id()));
         } });
+    }
+
+    @Override public synchronized RegistrationHandle registerLockableBlock(String material) {
+        if (material == null || material.isBlank()) throw new IllegalArgumentException("material is required");
+        return addLockable(material.toUpperCase(Locale.ROOT));
+    }
+
+    @Override public synchronized boolean isLockableBlock(String material) {
+        if (material == null || material.isBlank()) return false;
+        return lockableRefCounts.getOrDefault(material.toUpperCase(Locale.ROOT), 0) > 0;
+    }
+
+    @Override public synchronized Set<String> lockableBlocks() {
+        Set<String> ids = new HashSet<>();
+        for (Map.Entry<String, Integer> entry : lockableRefCounts.entrySet()) {
+            if (entry.getValue() > 0) ids.add(entry.getKey());
+        }
+        return Set.copyOf(ids);
     }
 
     @Override public synchronized RegistrationHandle registerRecipe(RecipeDefinition definition) {
@@ -207,6 +242,9 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         if (activeByBlock.containsKey(block)) return ProcessStartResult.rejected("block is busy");
         ProcessDefinition definition = processes.get(processId);
         if (definition == null) return ProcessStartResult.rejected("unknown process");
+        if (!events.emitStarting(new ProcessUsage(null, block, processId, owner))) {
+            return ProcessStartResult.rejected("cancelled");
+        }
         for (CompletionEffect effect : definition.effects()) {
             HandlerRegistration<?> registration = handlers.get(effect.type());
             if (registration == null) return ProcessStartResult.rejected("missing effect handler: " + effect.type());
@@ -241,6 +279,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
             }
             instance.state = ProcessState.RUNNING;
             persist(instance);
+            events.emitStarted(new ProcessUsage(id, block, processId, owner));
             return new ProcessStartResult(true, id, "started");
         } catch (RuntimeException error) {
             instance.state = ProcessState.FAILED;
@@ -268,6 +307,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
             if (registration == null || !registration.handler.effectType().isInstance(effect)) {
                 instance.state = ProcessState.NEEDS_PROVIDER_ACTION;
                 persist(instance);
+                emitFinished(instance);
                 return CompletableFuture.completedFuture(instance.state);
             }
             String effectId = effectId(instance, i);
@@ -280,18 +320,21 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
                 instance.ledger.put(i, EffectExecutionState.UNKNOWN);
                 instance.state = ProcessState.NEEDS_PROVIDER_ACTION;
                 persist(instance);
+                emitFinished(instance);
                 return CompletableFuture.completedFuture(instance.state);
             }
         }
         if (!returnClaims(instance, ConsumptionPolicy.RETURN_ON_SUCCESS, ConsumptionPolicy.RETURN_ALWAYS)) {
             instance.state = ProcessState.NEEDS_PROVIDER_ACTION;
             persist(instance);
+            emitFinished(instance);
             return CompletableFuture.completedFuture(instance.state);
         }
         instance.state = ProcessState.COMPLETED;
         activeByBlock.remove(instance.block, instance.id);
         if (instance.reservationState != null) instance.reservationState = Reservation.State.CONSUMED;
         persist(instance);
+        emitFinished(instance);
         return CompletableFuture.completedFuture(instance.state);
     }
 
@@ -336,6 +379,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         stationPorts.clear();
         processes.clear();
         blocks.clear();
+        lockableRefCounts.clear();
         recipes.clear();
         triggers.clear();
         inventoryAdapters.clear();
@@ -422,11 +466,13 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
             instance.state = ProcessState.FAILED;
             activeByBlock.remove(instance.block, instance.id);
             persist(instance);
+            emitFinished(instance);
             return;
         }
         instance.state = ProcessState.CANCELLED;
         activeByBlock.remove(instance.block, instance.id);
         persist(instance);
+        emitFinished(instance);
     }
 
     private boolean returnClaims(Instance instance, ConsumptionPolicy... policies) {
@@ -444,6 +490,23 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
             instance.reservationState = Reservation.State.FAILED;
             return false;
         }
+    }
+
+    private RegistrationHandle addLockable(String material) {
+        String id = material.toUpperCase(Locale.ROOT);
+        lockableRefCounts.merge(id, 1, Integer::sum);
+        if (lockableRefCounts.get(id) == 1) lockableRegistered.accept(id);
+        return handle(() -> { synchronized (this) {
+            Integer remaining = lockableRefCounts.get(id);
+            if (remaining == null) return;
+            if (remaining <= 1) lockableRefCounts.remove(id);
+            else lockableRefCounts.put(id, remaining - 1);
+        } });
+    }
+
+    private void emitFinished(Instance instance) {
+        events.emitFinished(new ProcessUsage(instance.id, instance.block, instance.definition.id(), instance.owner),
+                instance.state);
     }
 
     private static boolean ingredientsMatch(List<Ingredient> ingredients, List<ItemSnapshot> offered) {

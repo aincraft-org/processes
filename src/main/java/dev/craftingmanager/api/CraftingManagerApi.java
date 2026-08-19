@@ -13,6 +13,9 @@ import static dev.craftingmanager.api.Domain.*;
 public interface CraftingManagerApi {
     RegistrationHandle registerProcess(ProcessDefinition definition);
     RegistrationHandle registerFunctionalBlock(FunctionalBlockDefinition definition);
+    RegistrationHandle registerLockableBlock(String material);
+    boolean isLockableBlock(String material);
+    java.util.Set<String> lockableBlocks();
     RegistrationHandle registerRecipe(RecipeDefinition definition);
     RegistrationHandle registerProcessTrigger(ProcessTrigger trigger);
     RegistrationHandle registerInventoryAdapter(InventoryAdapter adapter);

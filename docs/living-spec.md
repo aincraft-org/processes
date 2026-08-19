@@ -21,6 +21,8 @@ Success looks like: professions / chemistry / furniture plugins compile against 
 - Plugin-owned SQLite for **instance and station** state, namespaced `craftingmanager.<table>`.
 - CustomPack item models for first-party GUI/station display.
 - Paper interaction and block-lifecycle invalidation.
+- Process usage events that identify who started a station process.
+- Optional Bolt (pop4959) softdepend so registered station hosts can be locked.
 
 ### Out of scope / non-goals
 - User-edited `config.yml` recipe books.
@@ -55,6 +57,8 @@ Success looks like: professions / chemistry / furniture plugins compile against 
 - Recipe matching is core. `RecipeApi` types must have a registry and matcher, not only records.
 - Item take/give is abstract: processes declare `ProcessInput` + `ItemOutput` snapshots. Do not put alloy-specific consume/grant logic in `RuntimeEngine`. Paper `PlayerItemVault` is one `ItemVault`; tests use `MapItemVault`.
 - Hopper I/O is abstract face routing: `ProcessInput.insertFaces` and `ItemOutput.extractFaces`. `insertAt`/`extractAt` match those ports. Paper hoppers only translate `BlockFace` → `ProcessFace`.
+- Process usage is observable: `ProcessStartingEvent` (cancellable), `ProcessStartedEvent`, and `ProcessFinishedEvent` carry owner UUID, `BlockKey`, process id, and instance id. The engine fires through `ProcessEventSink`; tests record; Paper publishes Bukkit events. Do not skip identity fields.
+- Functional-block hosts are lockable materials. Providers may also call `registerLockableBlock`. When Bolt is present, core adds missing materials to Bolt's in-memory protectable set (no Bolt `config.yml` edits). Start is denied when Bolt says the player cannot `interact`.
 - After restart: reload instance rows, wait for definition re-registration, resume or park as `NEEDS_PROVIDER_ACTION`.
 - Testing: domain tests for execution; persistence tests for namespaced schema and restart reload; structural tests for CustomPack models.
 
@@ -77,6 +81,8 @@ Shipped kernel (still in-memory only until Next lands):
 - [x] Persist first-party functional-block placements (`craftingmanager.functional_blocks`).
 - [x] Generic item I/O: `ItemOutput` effect, `ItemVault`/`SlotInventoryAdapter`, required-input coverage. First-party smelter is only a process definition.
 - [x] Process face ports for hopper I/O (`insertFaces` / `extractFaces`). First-party smelter: UP iron, sides fuel, DOWN output.
+- [x] Process usage events: starting (cancellable), started, finished, with owner / block / process / instance.
+- [x] Lockable station hosts; Bolt softdepend registers them as protectable (grindstone is not in Bolt's default list).
 
 ### Current notes
 
@@ -107,6 +113,8 @@ Private DB file `plugins/CraftingManager/craftingmanager.db`. First-party statio
 | 2026-08-19 | Core owns SQLite instance state; tables are `craftingmanager.<name>` | Restart recovery cannot be optional if other plugins depend on this. Schema prefix avoids collisions in a shared server DB. |
 | 2026-08-19 | First-party alloy smelter is enabled product, not dead example code | Proves the SPI and gives the machine people expect from this plugin. |
 | 2026-08-19 | Extra first-party examples are a gem polisher and tonic mixer, not a vanilla-machine catalog | Prove unused input roles, return policies, and hopper faces without copying the smelter. |
+| 2026-08-19 | Process usage is a Bukkit event with owner identity | Other plugins (logs, professions, Bolt) must see who used a station without reading SQLite. |
+| 2026-08-19 | Register lockable hosts into Bolt at runtime; do not write Bolt config | Bolt has no public protectable-block API. Mutating the live map lets `/lock` work on grindstones without a user `config.yml`. |
 | 2026-08-19 | Still no user recipe `config.yml` | Definitions stay code/SPI. Persistence is instances, not a YAML recipe book. |
 
 ## Open questions
