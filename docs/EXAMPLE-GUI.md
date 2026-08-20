@@ -6,13 +6,13 @@ The `dev.craftingmanager.example` package is the first-party stations. Each is a
 
 Each station exposes a 27-slot input screen for its process. The screens intentionally do not implement pause, cancel, or progress controls because the current public API exposes process start and advance, but not instance pause/cancel/progress queries.
 
-Closing the inventory discards the transient view model. Process instances and station placements are owned by the core runtime (durable after spec Next).
+Input and output tiles show live station-slot `ItemSnapshot` values when those slots hold items. Closing the inventory discards only the view. Station slot contents stay on the `BlockKey` (SQLite `craftingmanager.station_inventories`).
 
 ## Interaction flow
 
 1. A provider opens `ExampleProcessGui` for a player and a `BlockKey`.
 2. The GUI renders the process title, input requirements, and a start control.
-3. Clicking the start control calls `CraftingManagerApi.start(block, processId, owner)`.
+3. Clicking the start control calls `CraftingManagerApi.start(block, processId, owner)`, which consumes station slots first and falls back to the player inventory if a required input is not in the station.
 4. A successful start closes the GUI; a rejected start remains visible and displays the rejection reason in the model.
 5. Decorative slots and unknown slots are cancelled and do not mutate inventory contents.
 6. Inventory close removes the transient GUI session.

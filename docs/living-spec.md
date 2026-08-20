@@ -57,6 +57,7 @@ Success looks like: professions / chemistry / furniture plugins compile against 
 - Recipe matching is core. `RecipeApi` types must have a registry and matcher, not only records.
 - Item take/give is abstract: processes declare `ProcessInput` + `ItemOutput` snapshots. Do not put alloy-specific consume/grant logic in `RuntimeEngine`. Paper `PlayerItemVault` is one `ItemVault`; tests use `MapItemVault`.
 - Hopper I/O is abstract face routing: `ProcessInput.insertFaces` and `ItemOutput.extractFaces`. `insertAt`/`extractAt` match those ports. Paper hoppers only translate `BlockFace` → `ProcessFace`.
+- Station inventory is the live `ItemSnapshot` map on a `BlockKey` (input/output ids). Persist as `craftingmanager.station_inventories` rows (`material`, `amount`, metadata text — not Base64). Hydrate into memory; write on insert/extract/start/complete, chunk unload, and shutdown. `start()` claims station slots first (`STATION_SLOT`); player inventory is only a fallback. Returned station claims go back to the station slot. GUI displays stored snapshots; it does not own a second inventory.
 - Process usage is observable: listen to `ProcessEvent` for every phase. `PreProcessEvent` is the cancellable start; `ProcessStartedEvent` and `ProcessFinishedEvent` follow. All carry owner UUID, `BlockKey`, and process id. The engine fires through `ProcessEventSink`; tests record; Paper publishes Bukkit events. Do not skip identity fields.
 - Functional-block hosts are lockable materials. Providers may also call `registerLockableBlock`. When Bolt is present, core adds missing materials to Bolt's in-memory protectable set (no Bolt `config.yml` edits). Start is denied when Bolt says the player cannot `interact`.
 - After restart: reload instance rows, wait for definition re-registration, resume or park as `NEEDS_PROVIDER_ACTION`.
@@ -87,6 +88,7 @@ Shipped kernel:
 - [x] Lockable station hosts; Bolt softdepend registers them as protectable (grindstone is not in Bolt's default list).
 - [x] Furnace-like step scheduler: honor `durationTicks`, persist `step_ticks`, tick only loaded chunks, resume mid-step after restart with no catch-up.
 - [x] Chunk load/unload lifecycle: `loadChunk`/`unloadChunk`, Paper `ChunkLoadEvent`/`ChunkUnloadEvent`, seed currently loaded chunks on enable. Processes do not tick until their chunk is loaded.
+- [x] Persisted station inventories: SQLite `station_inventories`, in-memory `ItemSnapshot` slots, hopper/`start()` share those slots, player backpack is fallback only.
 
 ### Current notes
 
@@ -122,6 +124,7 @@ Private DB file `plugins/CraftingManager/craftingmanager.db`. First-party statio
 | 2026-08-19 | Still no user recipe `config.yml` | Definitions stay code/SPI. Persistence is instances, not a YAML recipe book. |
 | 2026-08-19 | Process time is elapsed loaded-chunk ticks, persisted as `step_ticks` | Matches vanilla furnaces: progress survives restart, pauses while unloaded, and does not skip ahead for offline time. |
 | 2026-08-19 | Tick only tracked loaded chunks; Paper seeds on enable and listens to load/unload | Polling `World.isChunkLoaded` during unload is racy. An explicit loaded set matches furnace tile-entity lifetime. |
+| 2026-08-19 | Station slots are ItemSnapshot in memory and SQLite rows, not Base64 | Decode once on hydrate. Hopper, start, and GUI share one inventory on the BlockKey. |
 
 ## Open questions
 
