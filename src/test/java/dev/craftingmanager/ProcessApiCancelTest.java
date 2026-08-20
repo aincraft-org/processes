@@ -28,9 +28,46 @@ class ProcessApiCancelTest {
         var result = engine.cancelInstance(started.instanceId());
 
         assertTrue(result.cancelled());
+        assertEquals(ProcessState.CANCELLED, result.state());
+        assertEquals("cancelled", result.reason());
         assertEquals(1, inventory.returned);
         assertEquals(ProcessState.CANCELLED, engine.state(started.instanceId()).orElseThrow());
         assertTrue(engine.start(block, "smelt", UUID.randomUUID()).started());
+    }
+
+    @Test void cancelReturnFailureMarksFailedAndDoesNotReturnInputs() {
+        RuntimeEngine engine = new RuntimeEngine();
+        engine.registerEffectHandler(new Handler());
+        engine.registerInventoryAdapter(new FailingReturnInventory());
+        engine.registerProcess(new ProcessDefinition("smelt", List.of(input()), List.of(), List.of((CompletionEffect) () -> "output")));
+        BlockKey block = new BlockKey(UUID.randomUUID(), 0, 64, 0);
+        var started = engine.start(block, "smelt", UUID.randomUUID());
+        assertTrue(started.started());
+
+        var result = engine.cancelInstance(started.instanceId());
+
+        assertFalse(result.cancelled());
+        assertEquals(ProcessState.FAILED, result.state());
+        assertEquals("cancel failed", result.reason());
+        assertEquals(ProcessState.FAILED, engine.state(started.instanceId()).orElseThrow());
+        assertTrue(engine.start(block, "smelt", UUID.randomUUID()).started());
+    }
+
+    private static final class FailingReturnInventory implements InventoryAdapter {
+        int removed;
+        int returned;
+
+        public List<Reservation.Claim> captureClaims(List<ProcessInput> inputs) {
+            ProcessInput input = inputs.getFirst();
+            return List.of(new Reservation.Claim(Reservation.Source.PLAYER_INVENTORY, 0,
+                    new ItemSnapshot("COAL", input.amount(), null), input.amount(), input.id(), input.consumption()));
+        }
+
+        public boolean claimsStillMatch(List<Reservation.Claim> claims) { return true; }
+
+        public void remove(List<Reservation.Claim> claims) { removed++; }
+
+        public void returnItems(List<Reservation.Claim> claims) { throw new IllegalStateException("return failed"); }
     }
 
     @Test void cancelParkedInstanceIsRejected() {

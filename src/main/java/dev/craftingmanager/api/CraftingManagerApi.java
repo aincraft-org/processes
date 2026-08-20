@@ -19,6 +19,7 @@ public interface CraftingManagerApi {
     RegistrationHandle registerRecipe(RecipeDefinition definition);
     RegistrationHandle registerProcessTrigger(ProcessTrigger trigger);
     RegistrationHandle registerInventoryAdapter(InventoryAdapter adapter);
+    RegistrationHandle registerProcessEventSink(ProcessEventSink sink);
     default <E extends CompletionEffect> RegistrationHandle registerEffectHandler(EffectHandler<E> handler) {
         return registerEffectHandler(handler, UnregisterPolicy.REJECT_WHILE_IN_USE);
     }

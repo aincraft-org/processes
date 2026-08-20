@@ -29,6 +29,7 @@ import java.util.function.Predicate;
 public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
     private final ProcessStore store;
     private final ProcessEventSink events;
+    private final List<ProcessEventSink> eventSinks = new ArrayList<>();
     private Consumer<String> lockableRegistered = material -> {};
     private final Map<String, ProcessDefinition> processes = new HashMap<>();
     private final Map<String, FunctionalBlockDefinition> blocks = new HashMap<>();
@@ -130,6 +131,12 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
     @Override public synchronized RegistrationHandle registerInventoryAdapter(InventoryAdapter adapter) {
         inventoryAdapters.add(Objects.requireNonNull(adapter));
         return handle(() -> { synchronized (this) { inventoryAdapters.remove(adapter); } });
+    }
+
+    @Override public synchronized RegistrationHandle registerProcessEventSink(ProcessEventSink sink) {
+        Objects.requireNonNull(sink);
+        eventSinks.add(sink);
+        return handle(() -> { synchronized (this) { eventSinks.remove(sink); } });
     }
 
     @Override public synchronized <E extends CompletionEffect> RegistrationHandle registerEffectHandler(
@@ -269,7 +276,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         if (activeByBlock.containsKey(block)) return ProcessStartResult.rejected("block is busy");
         ProcessDefinition definition = processes.get(processId);
         if (definition == null) return ProcessStartResult.rejected("unknown process");
-        if (!events.emitStarting(new ProcessUsage(null, block, processId, owner))) {
+        if (!emitStarting(new ProcessUsage(null, block, processId, owner))) {
             return ProcessStartResult.rejected("cancelled");
         }
         for (CompletionEffect effect : definition.effects()) {
@@ -317,7 +324,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
             instance.state = ProcessState.RUNNING;
             loadChunk(block.worldId(), Math.floorDiv(block.x(), 16), Math.floorDiv(block.z(), 16));
             persist(instance);
-            events.emitStarted(new ProcessUsage(id, block, processId, owner));
+            emitStarted(new ProcessUsage(id, block, processId, owner));
             return new ProcessStartResult(true, id, "started");
         } catch (RuntimeException error) {
             instance.state = ProcessState.FAILED;
@@ -354,7 +361,9 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         if (instance == null || terminal(instance.state)) return ProcessCancelResult.rejected("unknown or terminal instance");
         if (instance.state == ProcessState.NEEDS_PROVIDER_ACTION) return ProcessCancelResult.rejected("parked instance requires dismiss");
         cancel(instance);
-        return new ProcessCancelResult(true, "cancelled");
+        ProcessState state = instance.state;
+        boolean cancelled = state == ProcessState.CANCELLED;
+        return new ProcessCancelResult(cancelled, state, cancelled ? "cancelled" : "cancel failed");
     }
 
     @Override public synchronized ProcessDismissResult dismissInstance(UUID instanceId) {
@@ -663,9 +672,23 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         } });
     }
 
+    private boolean emitStarting(ProcessUsage usage) {
+        boolean veto = events.emitStarting(usage);
+        for (ProcessEventSink sink : List.copyOf(eventSinks)) {
+            sink.emitStarting(usage);
+        }
+        return veto;
+    }
+
+    private void emitStarted(ProcessUsage usage) {
+        events.emitStarted(usage);
+        for (ProcessEventSink sink : List.copyOf(eventSinks)) sink.emitStarted(usage);
+    }
+
     private void emitFinished(Instance instance) {
-        events.emitFinished(new ProcessUsage(instance.id, instance.block, instance.definition.id(), instance.owner),
-                instance.state);
+        ProcessUsage usage = new ProcessUsage(instance.id, instance.block, instance.definition.id(), instance.owner);
+        events.emitFinished(usage, instance.state);
+        for (ProcessEventSink sink : List.copyOf(eventSinks)) sink.emitFinished(usage, instance.state);
     }
 
     private static boolean ingredientsMatch(List<Ingredient> ingredients, List<ItemSnapshot> offered) {
