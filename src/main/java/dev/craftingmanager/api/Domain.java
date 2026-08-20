@@ -88,6 +88,12 @@ public final class Domain {
             ledger = List.copyOf(ledger == null ? List.of() : ledger);
         }
     }
+    public record ProcessCancelResult(boolean cancelled, String reason) {
+        public static ProcessCancelResult rejected(String reason) { return new ProcessCancelResult(false, reason); }
+    }
+    public record ProcessDismissResult(boolean dismissed, String reason) {
+        public static ProcessDismissResult rejected(String reason) { return new ProcessDismissResult(false, reason); }
+    }
 
     public record ProcessDefinition(String id, List<ProcessInput> inputs, List<ProcessStep> steps, List<CompletionEffect> effects) {
         public ProcessDefinition {

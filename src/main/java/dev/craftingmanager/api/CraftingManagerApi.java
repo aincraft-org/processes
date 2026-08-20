@@ -39,6 +39,8 @@ public interface CraftingManagerApi {
     CompletionStage<ProcessState> advance(UUID instanceId);
     Optional<ProcessInstanceSnapshot> activeInstance(BlockKey block);
     Optional<ProcessInstanceSnapshot> activeInstance(UUID instanceId);
+    ProcessCancelResult cancelInstance(UUID instanceId);
+    ProcessDismissResult dismissInstance(UUID instanceId);
 
 
     record ProcessStartResult(boolean started, UUID instanceId, String reason) {

@@ -349,6 +349,22 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         return instance == null ? Optional.empty() : Optional.of(snapshot(instance));
     }
 
+    @Override public synchronized ProcessCancelResult cancelInstance(UUID instanceId) {
+        Instance instance = instances.get(Objects.requireNonNull(instanceId));
+        if (instance == null || terminal(instance.state)) return ProcessCancelResult.rejected("unknown or terminal instance");
+        if (instance.state == ProcessState.NEEDS_PROVIDER_ACTION) return ProcessCancelResult.rejected("parked instance requires dismiss");
+        cancel(instance);
+        return new ProcessCancelResult(true, "cancelled");
+    }
+
+    @Override public synchronized ProcessDismissResult dismissInstance(UUID instanceId) {
+        Instance instance = instances.get(Objects.requireNonNull(instanceId));
+        if (instance == null || instance.state != ProcessState.NEEDS_PROVIDER_ACTION) return ProcessDismissResult.rejected("only parked instances can be dismissed");
+        dismiss(instance);
+        return new ProcessDismissResult(true, "dismissed");
+    }
+
+
 
     public synchronized void tick() {
         for (Instance instance : List.copyOf(instances.values())) {
