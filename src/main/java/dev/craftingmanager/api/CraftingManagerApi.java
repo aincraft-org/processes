@@ -33,6 +33,7 @@ public interface CraftingManagerApi {
     void invalidateBlock(BlockKey block);
     boolean insertAt(BlockKey block, ProcessFace face, ItemSnapshot item);
     Optional<ItemSnapshot> extractAt(BlockKey block, ProcessFace face, int amount);
+    Optional<ItemSnapshot> slot(BlockKey block, String slotId);
     ProcessStartResult trigger(BlockKey block, UUID owner);
     ProcessStartResult start(BlockKey block, String processId, UUID owner);
     CompletionStage<ProcessState> advance(UUID instanceId);

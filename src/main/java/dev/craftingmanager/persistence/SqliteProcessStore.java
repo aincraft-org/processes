@@ -31,6 +31,7 @@ public final class SqliteProcessStore implements ProcessStore, AutoCloseable {
     private static final String UPSERT_SCHEMA_VERSION = SqlStatements.load("migrations/upsert-schema_version.sql", SCHEMA);
     private static final String INITIAL_SCHEMA = SqlStatements.load("migrations/V001__initial.sql", SCHEMA);
     private static final String STEP_TICKS_SCHEMA = SqlStatements.load("migrations/V002__step_ticks.sql", SCHEMA);
+    private static final String STATION_INVENTORIES_SCHEMA = SqlStatements.load("migrations/V003__station_inventories.sql", SCHEMA);
     private static final String DELETE_RESERVATIONS = SqlStatements.load("process/delete-reservations.sql", SCHEMA);
     private static final String DELETE_EFFECT_LEDGER = SqlStatements.load("process/delete-effect-ledger.sql", SCHEMA);
     private static final String UPSERT_INSTANCE = SqlStatements.load("process/upsert-instance.sql", SCHEMA);
@@ -43,6 +44,10 @@ public final class SqliteProcessStore implements ProcessStore, AutoCloseable {
     private static final String UPSERT_BLOCK = SqlStatements.load("blocks/upsert.sql", SCHEMA);
     private static final String DELETE_BLOCK = SqlStatements.load("blocks/delete.sql", SCHEMA);
     private static final String SELECT_BLOCKS = SqlStatements.load("blocks/select-all.sql", SCHEMA);
+    private static final String UPSERT_SLOT = SqlStatements.load("station/upsert.sql", SCHEMA);
+    private static final String DELETE_SLOT = SqlStatements.load("station/delete.sql", SCHEMA);
+    private static final String DELETE_SLOTS = SqlStatements.load("station/delete-block.sql", SCHEMA);
+    private static final String SELECT_SLOTS = SqlStatements.load("station/select-all.sql", SCHEMA);
 
     private final Connection connection;
 
@@ -214,6 +219,71 @@ public final class SqliteProcessStore implements ProcessStore, AutoCloseable {
         }
     }
 
+    @Override public void saveSlot(BlockKey key, String slotId, ItemSnapshot item) {
+        Objects.requireNonNull(key);
+        if (slotId == null || slotId.isBlank()) throw new IllegalArgumentException("slotId is required");
+        Objects.requireNonNull(item);
+        try (PreparedStatement statement = connection.prepareStatement(UPSERT_SLOT)) {
+            statement.setString(1, key.worldId().toString());
+            statement.setInt(2, key.x());
+            statement.setInt(3, key.y());
+            statement.setInt(4, key.z());
+            statement.setString(5, slotId);
+            statement.setString(6, item.material());
+            statement.setInt(7, item.amount());
+            statement.setString(8, encodeMetadata(item.metadata()));
+            statement.executeUpdate();
+        } catch (SQLException error) {
+            throw new IllegalStateException("failed to save station slot", error);
+        }
+    }
+
+    @Override public void removeSlot(BlockKey key, String slotId) {
+        Objects.requireNonNull(key);
+        if (slotId == null || slotId.isBlank()) throw new IllegalArgumentException("slotId is required");
+        try (PreparedStatement statement = connection.prepareStatement(DELETE_SLOT)) {
+            statement.setString(1, key.worldId().toString());
+            statement.setInt(2, key.x());
+            statement.setInt(3, key.y());
+            statement.setInt(4, key.z());
+            statement.setString(5, slotId);
+            statement.executeUpdate();
+        } catch (SQLException error) {
+            throw new IllegalStateException("failed to remove station slot", error);
+        }
+    }
+
+    @Override public void removeSlots(BlockKey key) {
+        Objects.requireNonNull(key);
+        try (PreparedStatement statement = connection.prepareStatement(DELETE_SLOTS)) {
+            statement.setString(1, key.worldId().toString());
+            statement.setInt(2, key.x());
+            statement.setInt(3, key.y());
+            statement.setInt(4, key.z());
+            statement.executeUpdate();
+        } catch (SQLException error) {
+            throw new IllegalStateException("failed to remove station slots", error);
+        }
+    }
+
+    @Override public List<StationSlotRecord> loadSlots() {
+        try (PreparedStatement statement = connection.prepareStatement(SELECT_SLOTS);
+             ResultSet rows = statement.executeQuery()) {
+            List<StationSlotRecord> records = new ArrayList<>();
+            while (rows.next()) {
+                records.add(new StationSlotRecord(
+                        new BlockKey(UUID.fromString(rows.getString("world_id")),
+                                rows.getInt("x"), rows.getInt("y"), rows.getInt("z")),
+                        rows.getString("slot_id"),
+                        new ItemSnapshot(rows.getString("material"), rows.getInt("amount"),
+                                decodeMetadata(rows.getString("metadata")))));
+            }
+            return List.copyOf(records);
+        } catch (SQLException error) {
+            throw new IllegalStateException("failed to load station slots", error);
+        }
+    }
+
     @Override public List<FunctionalBlockRecord> loadBlocks() {
         try (PreparedStatement statement = connection.prepareStatement(SELECT_BLOCKS);
              ResultSet rows = statement.executeQuery()) {
@@ -340,6 +410,11 @@ public final class SqliteProcessStore implements ProcessStore, AutoCloseable {
         if (version < 2) {
             executeScript(statement, STEP_TICKS_SCHEMA);
             writeSchemaVersion(connection, 2);
+            version = 2;
+        }
+        if (version < 3) {
+            executeScript(statement, STATION_INVENTORIES_SCHEMA);
+            writeSchemaVersion(connection, 3);
         }
     }
 

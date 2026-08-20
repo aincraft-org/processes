@@ -2,6 +2,7 @@ package dev.craftingmanager.example;
 
 import dev.craftingmanager.api.CraftingManagerApi;
 import dev.craftingmanager.api.Domain.BlockKey;
+import dev.craftingmanager.api.ItemSnapshot;
 import io.papermc.paper.datacomponent.DataComponentTypes;
 import net.kyori.adventure.key.Key;
 import org.bukkit.Bukkit;
@@ -83,7 +84,13 @@ public final class ExampleProcessGui {
         if (inventory == null) return;
         inventory.clear();
         for (Slot slot : screen.slots()) {
-            inventory.setItem(slot.index(), item(slot.material(), slot.name(), slot.lore(), slot.itemModel()));
+            ItemSnapshot stored = slot.slotId() == null ? null : api.slot(block, slot.slotId()).orElse(null);
+            if (stored != null) {
+                inventory.setItem(slot.index(), item(Material.valueOf(stored.material()), slot.name(),
+                        List.of("Stored: " + stored.amount()), slot.itemModel()));
+            } else {
+                inventory.setItem(slot.index(), item(slot.material(), slot.name(), slot.lore(), slot.itemModel()));
+            }
         }
         inventory.setItem(START_SLOT, item(Material.LIME_CONCRETE, "Start process", List.of("Click to begin"),
                 "craftingmanager:start_process"));
@@ -104,26 +111,26 @@ public final class ExampleProcessGui {
     private static Screen screenFor(String processId) {
         if (ExtraProcessProvider.POLISH_PROCESS_ID.equals(processId)) {
             return new Screen("Gem Polisher", List.of(
-                    new Slot(10, Material.AMETHYST_SHARD, "Rough gem", List.of("Required: 1"), null),
-                    new Slot(12, Material.IRON_PICKAXE, "Polishing tool", List.of("Returned on success"), null),
-                    new Slot(14, Material.QUARTZ, "Polished gem", List.of("Preview"), null)));
+                    new Slot(10, Material.AMETHYST_SHARD, "Rough gem", List.of("Required: 1"), null, "rough"),
+                    new Slot(12, Material.IRON_PICKAXE, "Polishing tool", List.of("Returned on success"), null, "tool"),
+                    new Slot(14, Material.QUARTZ, "Polished gem", List.of("Preview"), null, "gem")));
         }
         if (ExtraProcessProvider.MIX_PROCESS_ID.equals(processId)) {
             return new Screen("Tonic Mixer", List.of(
-                    new Slot(10, Material.REDSTONE, "Base", List.of("Required: 1"), null),
-                    new Slot(11, Material.GLOWSTONE_DUST, "Reagent", List.of("Required: 1"), null),
-                    new Slot(12, Material.BLAZE_POWDER, "Catalyst", List.of("Returned always"), null),
-                    new Slot(13, Material.SUGAR, "Additive", List.of("Optional"), null),
-                    new Slot(14, Material.GLOW_INK_SAC, "Mixed tonic", List.of("Preview"), null)));
+                    new Slot(10, Material.REDSTONE, "Base", List.of("Required: 1"), null, "base"),
+                    new Slot(11, Material.GLOWSTONE_DUST, "Reagent", List.of("Required: 1"), null, "reagent"),
+                    new Slot(12, Material.BLAZE_POWDER, "Catalyst", List.of("Returned always"), null, "catalyst"),
+                    new Slot(13, Material.SUGAR, "Additive", List.of("Optional"), null, "sweetener"),
+                    new Slot(14, Material.GLOW_INK_SAC, "Mixed tonic", List.of("Preview"), null, "tonic")));
         }
         return new Screen(TITLE, List.of(
-                new Slot(IRON_SLOT, Material.IRON_INGOT, "Iron input", List.of("Required: 1"), itemModel(IRON_SLOT)),
-                new Slot(COAL_SLOT, Material.COAL, "Coal fuel", List.of("Required: 1"), itemModel(COAL_SLOT)),
-                new Slot(OUTPUT_SLOT, Material.IRON_NUGGET, "Alloy output", List.of("Preview"), itemModel(OUTPUT_SLOT))));
+                new Slot(IRON_SLOT, Material.IRON_INGOT, "Iron input", List.of("Required: 1"), itemModel(IRON_SLOT), "iron"),
+                new Slot(COAL_SLOT, Material.COAL, "Coal fuel", List.of("Required: 1"), itemModel(COAL_SLOT), "fuel"),
+                new Slot(OUTPUT_SLOT, Material.IRON_NUGGET, "Alloy output", List.of("Preview"), itemModel(OUTPUT_SLOT), "alloy")));
     }
 
     private record Screen(String title, List<Slot> slots) {}
-    private record Slot(int index, Material material, String name, List<String> lore, String itemModel) {}
+    private record Slot(int index, Material material, String name, List<String> lore, String itemModel, String slotId) {}
 
     private static String requireText(String value, String field) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " is required");

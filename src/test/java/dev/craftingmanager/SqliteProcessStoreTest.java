@@ -37,13 +37,14 @@ class SqliteProcessStoreTest {
                     "functional_blocks",
                     "process_instances",
                     "reservations",
-                    "schema_version"), tableNames(store));
+                    "schema_version",
+                    "station_inventories"), tableNames(store));
             try (var statement = store.connection().prepareStatement(
                     "SELECT version FROM craftingmanager.schema_version WHERE schema = ?")) {
                 statement.setString(1, SqliteProcessStore.SCHEMA);
                 try (var rows = statement.executeQuery()) {
                     assertTrue(rows.next());
-                    assertEquals(2, rows.getInt(1));
+                    assertEquals(3, rows.getInt(1));
                 }
             }
             try (Statement statement = store.connection().createStatement();
@@ -57,6 +58,9 @@ class SqliteProcessStoreTest {
         String v002 = SqlStatements.load("migrations/V002__step_ticks.sql", SqliteProcessStore.SCHEMA);
         assertTrue(v002.contains("ALTER TABLE craftingmanager.process_instances ADD COLUMN step_ticks"));
         assertFalse(v002.contains("ALTER TABLE process_instances"));
+        String v003 = SqlStatements.load("migrations/V003__station_inventories.sql", SqliteProcessStore.SCHEMA);
+        assertTrue(v003.contains("CREATE TABLE IF NOT EXISTS craftingmanager.station_inventories"));
+        assertFalse(v003.contains("CREATE TABLE IF NOT EXISTS station_inventories"));
         String ddl = SqlStatements.load("migrations/V001__initial.sql", SqliteProcessStore.SCHEMA);
         assertTrue(ddl.contains("CREATE TABLE IF NOT EXISTS craftingmanager.process_instances"));
         assertTrue(ddl.contains("CREATE TABLE IF NOT EXISTS craftingmanager.reservations"));

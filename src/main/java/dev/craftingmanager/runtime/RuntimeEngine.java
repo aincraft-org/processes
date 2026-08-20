@@ -17,6 +17,7 @@ import dev.craftingmanager.api.Reservation;
 import dev.craftingmanager.persistence.FunctionalBlockRecord;
 import dev.craftingmanager.persistence.ProcessInstanceRecord;
 import dev.craftingmanager.persistence.ProcessStore;
+import dev.craftingmanager.persistence.StationSlotRecord;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -158,6 +159,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         registeredBlocks.remove(key);
         store.removeBlock(key);
         stationPorts.remove(key);
+        store.removeSlots(key);
         UUID instanceId = activeByBlock.get(key);
         if (instanceId != null) cancel(instances.get(instanceId));
     }
@@ -173,6 +175,14 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
             return mergePort(block, input.id(), item);
         }
         return false;
+    }
+
+    @Override public synchronized Optional<ItemSnapshot> slot(BlockKey block, String slotId) {
+        Objects.requireNonNull(block);
+        if (slotId == null || slotId.isBlank()) throw new IllegalArgumentException("slotId is required");
+        Map<String, ItemSnapshot> ports = stationPorts.get(block);
+        if (ports == null) return Optional.empty();
+        return Optional.ofNullable(ports.get(slotId));
     }
 
     @Override public synchronized Optional<ItemSnapshot> extractAt(BlockKey block, ProcessFace face, int amount) {
@@ -270,28 +280,38 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
             }
         }
 
+        List<Reservation.Claim> stationClaims = captureStationClaims(block, definition.inputs());
         InventoryAdapter adapter = null;
-        List<Reservation.Claim> claims = List.of();
-        if (!definition.inputs().isEmpty()) {
+        List<Reservation.Claim> claims = new ArrayList<>(stationClaims);
+        if (!coversRequired(definition.inputs(), claims)) {
             for (InventoryAdapter candidate : List.copyOf(inventoryAdapters)) {
                 if (candidate.supports(block, owner)) { adapter = candidate; break; }
             }
-            if (adapter == null) return ProcessStartResult.rejected("inventory adapter unavailable");
-            claims = List.copyOf(Objects.requireNonNull(
-                    adapter.captureClaims(block, owner, definition.inputs()), "claims"));
+            if (adapter == null) return ProcessStartResult.rejected("missing inputs");
+            List<ProcessInput> remaining = remainingInputs(definition.inputs(), stationClaims);
+            List<Reservation.Claim> playerClaims = List.copyOf(Objects.requireNonNull(
+                    adapter.captureClaims(block, owner, remaining), "claims"));
+            claims.addAll(playerClaims);
             if (!coversRequired(definition.inputs(), claims)) return ProcessStartResult.rejected("missing inputs");
-            if (!adapter.claimsStillMatch(owner, claims)) return ProcessStartResult.rejected("input claims changed");
+            if (!adapter.claimsStillMatch(owner, playerClaims)) return ProcessStartResult.rejected("input claims changed");
         }
+        claims = List.copyOf(claims);
 
         UUID id = UUID.randomUUID();
         Instance instance = new Instance(id, block, definition, owner, adapter, claims);
         instances.put(id, instance);
         activeByBlock.put(block, id);
         try {
-            if (adapter != null) {
+            if (!claims.isEmpty()) {
                 instance.state = ProcessState.CLAIM_CAPTURED;
                 instance.reservationState = Reservation.State.CLAIMED;
-                adapter.remove(owner, claims);
+                takeStationClaims(block, stationClaims);
+                if (adapter != null) {
+                    List<Reservation.Claim> playerClaims = claims.stream()
+                            .filter(claim -> claim.source() == Reservation.Source.PLAYER_INVENTORY)
+                            .toList();
+                    if (!playerClaims.isEmpty()) adapter.remove(owner, playerClaims);
+                }
                 instance.reservationState = Reservation.State.RESERVED;
             }
             instance.state = ProcessState.RUNNING;
@@ -331,6 +351,13 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
             if (Math.floorDiv(instance.block.x(), 16) != chunkX) continue;
             if (Math.floorDiv(instance.block.z(), 16) != chunkZ) continue;
             persist(instance);
+        }
+        for (Map.Entry<BlockKey, Map<String, ItemSnapshot>> entry : stationPorts.entrySet()) {
+            BlockKey key = entry.getKey();
+            if (!key.worldId().equals(worldId)) continue;
+            if (Math.floorDiv(key.x(), 16) != chunkX) continue;
+            if (Math.floorDiv(key.z(), 16) != chunkZ) continue;
+            persistSlots(key, entry.getValue());
         }
     }
 
@@ -394,6 +421,9 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         for (FunctionalBlockRecord record : store.loadBlocks()) {
             registeredBlocks.put(record.key(), record.definitionId());
         }
+        for (StationSlotRecord record : store.loadSlots()) {
+            stationPorts.computeIfAbsent(record.key(), key -> new HashMap<>()).put(record.slotId(), record.item());
+        }
         for (ProcessInstanceRecord record : store.loadAll()) {
             restore(record);
         }
@@ -421,6 +451,9 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
 
     public synchronized void shutdown() {
         for (Instance instance : instances.values()) persist(instance);
+        for (Map.Entry<BlockKey, Map<String, ItemSnapshot>> entry : stationPorts.entrySet()) {
+            persistSlots(entry.getKey(), entry.getValue());
+        }
     }
 
     public synchronized void clear() {
@@ -529,14 +562,31 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
     }
 
     private boolean returnClaims(Instance instance, ConsumptionPolicy... policies) {
-        if (instance.adapter == null || instance.claims.isEmpty() || instance.reservationState != Reservation.State.RESERVED) return true;
+        if (instance.claims.isEmpty() || instance.reservationState != Reservation.State.RESERVED) return true;
         EnumSet<ConsumptionPolicy> selected = EnumSet.noneOf(ConsumptionPolicy.class);
         Collections.addAll(selected, policies);
         List<Reservation.Claim> returns = instance.claims.stream().filter(c -> selected.contains(c.policy())).toList();
         if (returns.isEmpty()) return true;
+        List<Reservation.Claim> station = returns.stream()
+                .filter(claim -> claim.source() == Reservation.Source.STATION_SLOT).toList();
+        List<Reservation.Claim> player = returns.stream()
+                .filter(claim -> claim.source() != Reservation.Source.STATION_SLOT).toList();
         try {
             instance.reservationState = Reservation.State.RETURN_PENDING;
-            instance.adapter.returnItems(instance.owner, returns);
+            for (Reservation.Claim claim : station) {
+                if (!mergePort(instance.block, claim.inputId(),
+                        new ItemSnapshot(claim.expected().material(), claim.amount(), claim.expected().metadata()))) {
+                    instance.reservationState = Reservation.State.FAILED;
+                    return false;
+                }
+            }
+            if (!player.isEmpty()) {
+                if (instance.adapter == null) {
+                    instance.reservationState = Reservation.State.FAILED;
+                    return false;
+                }
+                instance.adapter.returnItems(instance.owner, player);
+            }
             instance.reservationState = Reservation.State.RETURNED;
             return true;
         } catch (RuntimeException error) {
@@ -592,15 +642,62 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         return processes.get(definition.processIds().getFirst());
     }
 
+    private List<Reservation.Claim> captureStationClaims(BlockKey block, List<ProcessInput> inputs) {
+        List<Reservation.Claim> claims = new ArrayList<>();
+        for (ProcessInput input : inputs) {
+            if (input.timing() != InputTiming.ON_START) continue;
+            ItemSnapshot current = slot(block, input.id()).orElse(null);
+            if (current == null || !input.matcher().equals(current.material()) || current.amount() < input.amount()) {
+                continue;
+            }
+            claims.add(new Reservation.Claim(
+                    Reservation.Source.STATION_SLOT, 0,
+                    new ItemSnapshot(current.material(), current.amount(), current.metadata()),
+                    input.amount(), input.id(), input.consumption()));
+        }
+        return claims;
+    }
+
+    private static List<ProcessInput> remainingInputs(List<ProcessInput> inputs, List<Reservation.Claim> claimed) {
+        Set<String> claimedIds = new HashSet<>();
+        for (Reservation.Claim claim : claimed) claimedIds.add(claim.inputId());
+        List<ProcessInput> remaining = new ArrayList<>();
+        for (ProcessInput input : inputs) {
+            if (!claimedIds.contains(input.id())) remaining.add(input);
+        }
+        return remaining;
+    }
+
+    private void takeStationClaims(BlockKey block, List<Reservation.Claim> claims) {
+        for (Reservation.Claim claim : claims) {
+            takePort(block, claim.inputId(), claim.amount());
+        }
+    }
+
+    private void persistSlots(BlockKey block, Map<String, ItemSnapshot> ports) {
+        for (Map.Entry<String, ItemSnapshot> entry : ports.entrySet()) {
+            store.saveSlot(block, entry.getKey(), entry.getValue());
+        }
+    }
+
+    private void persistSlot(BlockKey block, String slotId) {
+        Map<String, ItemSnapshot> ports = stationPorts.get(block);
+        ItemSnapshot item = ports == null ? null : ports.get(slotId);
+        if (item == null) store.removeSlot(block, slotId);
+        else store.saveSlot(block, slotId, item);
+    }
+
     private boolean mergePort(BlockKey block, String portId, ItemSnapshot item) {
         Map<String, ItemSnapshot> ports = stationPorts.computeIfAbsent(block, key -> new HashMap<>());
         ItemSnapshot current = ports.get(portId);
         if (current == null) {
             ports.put(portId, item);
+            persistSlot(block, portId);
             return true;
         }
         if (!current.material().equals(item.material())) return false;
         ports.put(portId, new ItemSnapshot(current.material(), current.amount() + item.amount(), current.metadata()));
+        persistSlot(block, portId);
         return true;
     }
 
@@ -613,6 +710,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         if (taken <= 0) return Optional.empty();
         if (taken == current.amount()) ports.remove(portId);
         else ports.put(portId, new ItemSnapshot(current.material(), current.amount() - taken, current.metadata()));
+        persistSlot(block, portId);
         return Optional.of(new ItemSnapshot(current.material(), taken, current.metadata()));
     }
 
