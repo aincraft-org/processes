@@ -97,8 +97,10 @@ Private DB file `plugins/CraftingManager/craftingmanager.db`. First-party statio
 
 ## Next
 
-- [ ] Public cancel/dismiss and progress queries on the public API (GUI currently start-only).
+- [x] Public cancel/dismiss and progress queries on the public API.
 - [ ] Off-main-thread SQLite writes with revision-checked apply-back.
+
+Shipped on `CraftingManagerApi`: `activeInstance(BlockKey|UUID)` returning `ProcessInstanceSnapshot`; `cancelInstance(UUID)` returning `ProcessCancelResult(boolean cancelled, ProcessState state, String reason)`; `dismissInstance(UUID)` returning `ProcessDismissResult`; and `registerProcessEventSink(ProcessEventSink)` for observer fan-out. `emitStarting` preserves the primary-sink veto; observer handles remove sinks on close.
 
 ## Future
 
