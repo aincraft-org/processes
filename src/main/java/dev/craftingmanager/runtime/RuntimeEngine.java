@@ -338,7 +338,10 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
 
     @Override public synchronized Optional<ProcessInstanceSnapshot> activeInstance(BlockKey block) {
         UUID instanceId = activeByBlock.get(Objects.requireNonNull(block));
-        return instanceId == null ? Optional.empty() : Optional.of(snapshot(instances.get(instanceId)));
+        if (instanceId == null) return Optional.empty();
+        Instance instance = instances.get(instanceId);
+        if (instance == null) return Optional.empty();
+        return Optional.of(snapshot(instance));
     }
 
     @Override public synchronized Optional<ProcessInstanceSnapshot> activeInstance(UUID instanceId) {
