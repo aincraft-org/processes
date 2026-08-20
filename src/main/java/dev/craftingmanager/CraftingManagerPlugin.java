@@ -1,7 +1,6 @@
 package dev.craftingmanager;
 
 import dev.craftingmanager.api.CraftingManagerApi;
-import dev.craftingmanager.api.Domain.BlockKey;
 import dev.craftingmanager.example.ExampleGuiListener;
 import dev.craftingmanager.example.FirstPartyContent;
 import dev.craftingmanager.example.FirstPartyStationListener;
@@ -17,6 +16,7 @@ import dev.craftingmanager.persistence.SqliteProcessStore;
 import dev.craftingmanager.runtime.ItemOutputHandler;
 import dev.craftingmanager.runtime.RuntimeEngine;
 import dev.craftingmanager.runtime.SlotInventoryAdapter;
+import org.bukkit.Chunk;
 import org.bukkit.World;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -42,8 +42,8 @@ public final class CraftingManagerPlugin extends JavaPlugin {
         engine.onLockableRegistered(boltHook::register);
         firstParty.enable();
         boltHook.install();
-        engine.setChunkLoaded(this::isChunkLoaded);
         engine.hydrate();
+        markLoadedChunks();
         tickTask = getServer().getScheduler().runTaskTimer(this, engine::tick, 1L, 1L);
         getServer().getServicesManager().register(CraftingManagerApi.class, engine, this, ServicePriority.Normal);
         getServer().getPluginManager().registerEvents(new ProcessInteractionListener(engine), this);
@@ -63,8 +63,11 @@ public final class CraftingManagerPlugin extends JavaPlugin {
         if (store != null) store.close();
     }
 
-    private boolean isChunkLoaded(BlockKey key) {
-        World world = getServer().getWorld(key.worldId());
-        return world != null && world.isChunkLoaded(Math.floorDiv(key.x(), 16), Math.floorDiv(key.z(), 16));
+    private void markLoadedChunks() {
+        for (World world : getServer().getWorlds()) {
+            for (Chunk chunk : world.getLoadedChunks()) {
+                engine.loadChunk(world.getUID(), chunk.getX(), chunk.getZ());
+            }
+        }
     }
 }

@@ -209,6 +209,8 @@ class FirstPartyExamplesTest {
         String plugin = Files.readString(root.resolve("src/main/java/dev/craftingmanager/CraftingManagerPlugin.java"));
         String listener = Files.readString(
                 root.resolve("src/main/java/dev/craftingmanager/example/FirstPartyStationListener.java"));
+        String chunks = Files.readString(
+                root.resolve("src/main/java/dev/craftingmanager/paper/ProcessChunkListener.java"));
         assertTrue(plugin.contains("FirstPartyContent"));
         assertTrue(plugin.contains("FirstPartyStationListener"));
         assertTrue(plugin.contains("firstParty.enable()"));
@@ -216,7 +218,12 @@ class FirstPartyExamplesTest {
         assertTrue(plugin.contains("runTaskTimer"));
         assertTrue(plugin.contains("engine::tick"));
         assertTrue(plugin.contains("ProcessChunkListener"));
-        assertTrue(plugin.contains("setChunkLoaded"));
+        assertTrue(plugin.contains("markLoadedChunks"));
+        assertTrue(plugin.contains("loadChunk"));
+        assertTrue(chunks.contains("ChunkLoadEvent"));
+        assertTrue(chunks.contains("ChunkUnloadEvent"));
+        assertTrue(chunks.contains("loadChunk"));
+        assertTrue(chunks.contains("unloadChunk"));
         assertTrue(listener.contains("GRINDSTONE"));
         assertTrue(listener.contains("CAULDRON"));
         assertTrue(listener.contains("BLAST_FURNACE"));
