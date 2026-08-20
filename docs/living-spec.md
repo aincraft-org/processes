@@ -60,7 +60,7 @@ Success looks like: professions / chemistry / furniture plugins compile against 
 - Process usage is observable: listen to `ProcessEvent` for every phase. `PreProcessEvent` is the cancellable start; `ProcessStartedEvent` and `ProcessFinishedEvent` follow. All carry owner UUID, `BlockKey`, and process id. The engine fires through `ProcessEventSink`; tests record; Paper publishes Bukkit events. Do not skip identity fields.
 - Functional-block hosts are lockable materials. Providers may also call `registerLockableBlock`. When Bolt is present, core adds missing materials to Bolt's in-memory protectable set (no Bolt `config.yml` edits). Start is denied when Bolt says the player cannot `interact`.
 - After restart: reload instance rows, wait for definition re-registration, resume or park as `NEEDS_PROVIDER_ACTION`.
-- Process steps tick like a furnace: `ProcessStep.durationTicks` is real elapsed server ticks. `advance(instanceId)` applies one tick; Paper runs `RuntimeEngine.tick()` every server tick. Unloaded chunks do not gain progress. There is no wall-clock catch-up.
+- Process steps tick like a furnace: `ProcessStep.durationTicks` is real elapsed server ticks. `advance(instanceId)` applies one tick; Paper runs `RuntimeEngine.tick()` every server tick. A process gains time only while its host chunk is loaded (`loadChunk` / `unloadChunk`). Starting a process marks that chunk loaded. After hydrate, wait for a chunk load (or Paper's currently-loaded seed) before ticking. Unload persists `step_ticks` and pauses. There is no wall-clock catch-up.
 - Persist cook progress as `craftingmanager.process_instances.step_ticks`. Write on step completion, shutdown, chunk unload, and every 20 ticks of progress — not every tick.
 - Testing: domain tests for execution; persistence tests for namespaced schema and restart reload; structural tests for CustomPack models.
 
@@ -86,6 +86,7 @@ Shipped kernel:
 - [x] Process usage events: `ProcessEvent` base, `PreProcessEvent` (cancellable), started, finished, with owner / block / process / instance.
 - [x] Lockable station hosts; Bolt softdepend registers them as protectable (grindstone is not in Bolt's default list).
 - [x] Furnace-like step scheduler: honor `durationTicks`, persist `step_ticks`, tick only loaded chunks, resume mid-step after restart with no catch-up.
+- [x] Chunk load/unload lifecycle: `loadChunk`/`unloadChunk`, Paper `ChunkLoadEvent`/`ChunkUnloadEvent`, seed currently loaded chunks on enable. Processes do not tick until their chunk is loaded.
 
 ### Current notes
 
@@ -120,6 +121,7 @@ Private DB file `plugins/CraftingManager/craftingmanager.db`. First-party statio
 | 2026-08-19 | Register lockable hosts into Bolt at runtime; do not write Bolt config | Bolt has no public protectable-block API. Mutating the live map lets `/lock` work on grindstones without a user `config.yml`. |
 | 2026-08-19 | Still no user recipe `config.yml` | Definitions stay code/SPI. Persistence is instances, not a YAML recipe book. |
 | 2026-08-19 | Process time is elapsed loaded-chunk ticks, persisted as `step_ticks` | Matches vanilla furnaces: progress survives restart, pauses while unloaded, and does not skip ahead for offline time. |
+| 2026-08-19 | Tick only tracked loaded chunks; Paper seeds on enable and listens to load/unload | Polling `World.isChunkLoaded` during unload is racy. An explicit loaded set matches furnace tile-entity lifetime. |
 
 ## Open questions
 
