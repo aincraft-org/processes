@@ -40,7 +40,8 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
     private final Map<UUID, Instance> instances = new HashMap<>();
     private final Map<BlockKey, UUID> activeByBlock = new HashMap<>();
     private final Map<BlockKey, Map<String, ItemSnapshot>> stationPorts = new HashMap<>();
-    private Predicate<BlockKey> chunkLoaded = key -> true;
+    private final Set<ChunkCoord> loadedChunks = new HashSet<>();
+    private Predicate<BlockKey> chunkLoaded = this::chunkIsTracked;
 
     public RuntimeEngine() {
         this(ProcessStore.none());
@@ -60,7 +61,17 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
     }
 
     public synchronized void setChunkLoaded(Predicate<BlockKey> chunkLoaded) {
-        this.chunkLoaded = chunkLoaded == null ? key -> true : chunkLoaded;
+        this.chunkLoaded = chunkLoaded == null ? this::chunkIsTracked : chunkLoaded;
+    }
+
+    public synchronized void loadChunk(UUID worldId, int chunkX, int chunkZ) {
+        Objects.requireNonNull(worldId);
+        loadedChunks.add(new ChunkCoord(worldId, chunkX, chunkZ));
+    }
+
+    public synchronized void unloadChunk(UUID worldId, int chunkX, int chunkZ) {
+        persistChunk(worldId, chunkX, chunkZ);
+        loadedChunks.remove(new ChunkCoord(worldId, chunkX, chunkZ));
     }
 
     @Override public synchronized RegistrationHandle registerProcess(ProcessDefinition definition) {
@@ -284,6 +295,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
                 instance.reservationState = Reservation.State.RESERVED;
             }
             instance.state = ProcessState.RUNNING;
+            loadChunk(block.worldId(), Math.floorDiv(block.x(), 16), Math.floorDiv(block.z(), 16));
             persist(instance);
             events.emitStarted(new ProcessUsage(id, block, processId, owner));
             return new ProcessStartResult(true, id, "started");
@@ -567,6 +579,11 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         return true;
     }
 
+    private boolean chunkIsTracked(BlockKey key) {
+        return loadedChunks.contains(new ChunkCoord(
+                key.worldId(), Math.floorDiv(key.x(), 16), Math.floorDiv(key.z(), 16)));
+    }
+
     private ProcessDefinition processAt(BlockKey block) {
         String placed = registeredBlocks.get(block);
         if (placed == null) return null;
@@ -634,6 +651,8 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
     }
 
     private record HandlerRegistration<E extends CompletionEffect>(EffectHandler<E> handler, UnregisterPolicy policy) {}
+
+    private record ChunkCoord(UUID worldId, int x, int z) {}
 
     private static final class Instance {
         final UUID id;

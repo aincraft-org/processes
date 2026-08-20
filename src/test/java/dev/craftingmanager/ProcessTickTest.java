@@ -11,9 +11,7 @@ import dev.craftingmanager.api.EffectHandler;
 import dev.craftingmanager.runtime.RuntimeEngine;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -68,19 +66,39 @@ class ProcessTickTest {
         assertEquals(ProcessState.COMPLETED, engine.state(second).orElseThrow());
     }
 
-    @Test void unloadedChunksDoNotGainProgress() {
+    @Test void startMarksTheHostChunkLoadedSoTheProcessCanTick() {
+        RuntimeEngine engine = engine(new ProcessStep("work", "Work", 1));
+        CraftingManagerApi.ProcessStartResult started = start(engine);
+        engine.tick();
+        assertEquals(ProcessState.COMPLETED, engine.state(started.instanceId()).orElseThrow());
+    }
+
+    @Test void ticksOnlyWhileTheHostChunkIsLoaded() {
         RuntimeEngine engine = engine(new ProcessStep("heat", "Heat", 2));
-        BlockKey block = new BlockKey(UUID.randomUUID(), 3, 64, 3);
+        BlockKey block = new BlockKey(UUID.randomUUID(), 19, 64, 35);
         CraftingManagerApi.ProcessStartResult started = start(engine, block);
-        Set<BlockKey> loaded = new HashSet<>();
-        engine.setChunkLoaded(loaded::contains);
+        engine.unloadChunk(block.worldId(), Math.floorDiv(block.x(), 16), Math.floorDiv(block.z(), 16));
+        engine.tick();
+        engine.tick();
         engine.tick();
         assertEquals(ProcessState.RUNNING, engine.state(started.instanceId()).orElseThrow());
-        loaded.add(block);
+        engine.loadChunk(block.worldId(), Math.floorDiv(block.x(), 16), Math.floorDiv(block.z(), 16));
         engine.tick();
         assertEquals(ProcessState.RUNNING, engine.state(started.instanceId()).orElseThrow());
         engine.tick();
         assertEquals(ProcessState.COMPLETED, engine.state(started.instanceId()).orElseThrow());
+    }
+
+    @Test void onlyTheLoadedChunkGainsProgress() {
+        RuntimeEngine engine = engine(new ProcessStep("heat", "Heat", 1));
+        BlockKey loaded = new BlockKey(UUID.randomUUID(), 0, 64, 0);
+        BlockKey unloaded = new BlockKey(loaded.worldId(), 32, 64, 0);
+        UUID running = start(engine, loaded).instanceId();
+        UUID paused = start(engine, unloaded).instanceId();
+        engine.unloadChunk(unloaded.worldId(), Math.floorDiv(unloaded.x(), 16), Math.floorDiv(unloaded.z(), 16));
+        engine.tick();
+        assertEquals(ProcessState.COMPLETED, engine.state(running).orElseThrow());
+        assertEquals(ProcessState.RUNNING, engine.state(paused).orElseThrow());
     }
 
     @Test void parkedInstancesDoNotGainProgress() {

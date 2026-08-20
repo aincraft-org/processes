@@ -61,6 +61,51 @@ class ProcessRestartTest {
             engine.hydrate();
             assertEquals(ProcessState.RUNNING, engine.state(instanceId).orElseThrow());
             assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            load(engine, block);
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            assertEquals(ProcessState.COMPLETED, engine.advance(instanceId).toCompletableFuture().join());
+        }
+    }
+
+    @Test void hydratedInstanceDoesNotTickUntilItsChunkLoads() throws Exception {
+        Path db = temp.resolve("craftingmanager.db");
+        BlockKey block = new BlockKey(UUID.randomUUID(), 48, 70, 16);
+        UUID instanceId;
+        try (SqliteProcessStore store = SqliteProcessStore.open(db)) {
+            RuntimeEngine engine = engine(store, new ProcessStep("heat", "Heat", 2));
+            instanceId = start(engine, block);
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            engine.shutdown();
+        }
+        try (SqliteProcessStore store = SqliteProcessStore.open(db)) {
+            RuntimeEngine engine = engine(store, new ProcessStep("heat", "Heat", 2));
+            engine.hydrate();
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            assertEquals(ProcessState.RUNNING, engine.state(instanceId).orElseThrow());
+            load(engine, block);
+            assertEquals(ProcessState.COMPLETED, engine.advance(instanceId).toCompletableFuture().join());
+        }
+    }
+
+    @Test void unloadThenLoadResumesRemainingTicksWithoutCatchUp() throws Exception {
+        Path db = temp.resolve("craftingmanager.db");
+        BlockKey block = new BlockKey(UUID.randomUUID(), 64, 70, 64);
+        UUID instanceId;
+        try (SqliteProcessStore store = SqliteProcessStore.open(db)) {
+            RuntimeEngine engine = engine(store, new ProcessStep("heat", "Heat", 3));
+            instanceId = start(engine, block);
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            engine.unloadChunk(block.worldId(), Math.floorDiv(block.x(), 16), Math.floorDiv(block.z(), 16));
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+        }
+        try (SqliteProcessStore store = SqliteProcessStore.open(db)) {
+            RuntimeEngine engine = engine(store, new ProcessStep("heat", "Heat", 3));
+            engine.hydrate();
+            engine.tick();
+            assertEquals(ProcessState.RUNNING, engine.state(instanceId).orElseThrow());
+            load(engine, block);
+            assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
             assertEquals(ProcessState.COMPLETED, engine.advance(instanceId).toCompletableFuture().join());
         }
     }
@@ -78,6 +123,7 @@ class ProcessRestartTest {
         try (SqliteProcessStore store = SqliteProcessStore.open(db)) {
             RuntimeEngine engine = engine(store, new ProcessStep("heat", "Heat", 3));
             engine.hydrate();
+            load(engine, block);
             assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
             assertEquals(ProcessState.COMPLETED, engine.advance(instanceId).toCompletableFuture().join());
         }
@@ -130,6 +176,10 @@ class ProcessRestartTest {
         CraftingManagerApi.ProcessStartResult started = engine.start(block, "forge", UUID.randomUUID());
         assertTrue(started.started(), started.reason());
         return started.instanceId();
+    }
+
+    private static void load(RuntimeEngine engine, BlockKey block) {
+        engine.loadChunk(block.worldId(), Math.floorDiv(block.x(), 16), Math.floorDiv(block.z(), 16));
     }
 
     private static ProcessDefinition definition() {
