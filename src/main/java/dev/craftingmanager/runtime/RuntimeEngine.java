@@ -161,7 +161,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         stationPorts.remove(key);
         store.removeSlots(key);
         UUID instanceId = activeByBlock.get(key);
-        if (instanceId != null) cancel(instances.get(instanceId));
+        if (instanceId != null) releaseInstance(instances.get(instanceId));
     }
 
     @Override public synchronized boolean insertAt(BlockKey block, ProcessFace face, ItemSnapshot item) {
@@ -336,6 +336,17 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         return CompletableFuture.completedFuture(tickRunning(instance));
     }
 
+    @Override public synchronized Optional<ProcessInstanceSnapshot> activeInstance(BlockKey block) {
+        UUID instanceId = activeByBlock.get(Objects.requireNonNull(block));
+        return instanceId == null ? Optional.empty() : Optional.of(snapshot(instances.get(instanceId)));
+    }
+
+    @Override public synchronized Optional<ProcessInstanceSnapshot> activeInstance(UUID instanceId) {
+        Instance instance = instances.get(Objects.requireNonNull(instanceId));
+        return instance == null ? Optional.empty() : Optional.of(snapshot(instance));
+    }
+
+
     public synchronized void tick() {
         for (Instance instance : List.copyOf(instances.values())) {
             if (instance.state != ProcessState.RUNNING) continue;
@@ -445,6 +456,15 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         return Optional.of(List.copyOf(result));
     }
 
+    private ProcessInstanceSnapshot snapshot(Instance instance) {
+        List<ProcessStep> steps = instance.definition.steps();
+        long duration = instance.step < steps.size() ? steps.get(instance.step).durationTicks() : 0;
+        return new ProcessInstanceSnapshot(
+                instance.id, instance.definition.id(), instance.state, instance.step, instance.stepTicks, duration,
+                instance.owner, ledger(instance.id).orElseGet(List::of));
+    }
+
+
     public synchronized Optional<ProcessState> state(UUID id) {
         return Optional.ofNullable(instances.get(id)).map(i -> i.state);
     }
@@ -457,7 +477,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
     }
 
     public synchronized void clear() {
-        for (Instance instance : List.copyOf(instances.values())) cancel(instance);
+        for (Instance instance : List.copyOf(instances.values())) releaseInstance(instance);
         instances.clear();
         activeByBlock.clear();
         registeredBlocks.clear();
@@ -541,13 +561,30 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
                 persist(i);
             });
         } else if (registration.policy == UnregisterPolicy.CANCEL_ACTIVE_PROCESSES) {
-            active.forEach(this::cancel);
+            active.forEach(this::releaseInstance);
         }
         handlers.remove(type, registration);
     }
 
+    private void releaseInstance(Instance instance) {
+        if (instance == null || terminal(instance.state)) return;
+        if (instance.state == ProcessState.NEEDS_PROVIDER_ACTION) dismiss(instance);
+        else cancel(instance);
+    }
+
+    /** Clears a parked instance without returning inputs or re-running applied effects. */
+    private void dismiss(Instance instance) {
+        if (instance == null || instance.state != ProcessState.NEEDS_PROVIDER_ACTION) return;
+        activeByBlock.remove(instance.block, instance.id);
+        instances.remove(instance.id);
+        store.delete(instance.id);
+    }
+
     private void cancel(Instance instance) {
         if (instance == null || terminal(instance.state)) return;
+        if (instance.state == ProcessState.NEEDS_PROVIDER_ACTION) {
+            throw new IllegalStateException("parked instances must be dismissed, not cancelled");
+        }
         if (!returnClaims(instance, ConsumptionPolicy.RETURN_ALWAYS)) {
             instance.state = ProcessState.FAILED;
             activeByBlock.remove(instance.block, instance.id);

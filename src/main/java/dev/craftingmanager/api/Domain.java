@@ -67,6 +67,28 @@ public final class Domain {
         @Override public String type() { return TYPE; }
     }
     public record EffectExecution(String effectId, String effectType, EffectExecutionState state) {}
+    public record ProcessInstanceSnapshot(
+            UUID instanceId,
+            String processId,
+            ProcessState state,
+            int stepIndex,
+            long stepTicks,
+            long stepDurationTicks,
+            UUID owner,
+            List<EffectExecution> ledger
+    ) {
+        public ProcessInstanceSnapshot {
+            if (instanceId == null) throw new IllegalArgumentException("instanceId is required");
+            if (processId == null || processId.isBlank()) throw new IllegalArgumentException("processId is required");
+            if (state == null) throw new IllegalArgumentException("state is required");
+            if (stepIndex < 0) throw new IllegalArgumentException("stepIndex cannot be negative");
+            if (stepTicks < 0) throw new IllegalArgumentException("stepTicks cannot be negative");
+            if (stepDurationTicks < 0) throw new IllegalArgumentException("stepDurationTicks cannot be negative");
+            if (owner == null) throw new IllegalArgumentException("owner is required");
+            ledger = List.copyOf(ledger == null ? List.of() : ledger);
+        }
+    }
+
     public record ProcessDefinition(String id, List<ProcessInput> inputs, List<ProcessStep> steps, List<CompletionEffect> effects) {
         public ProcessDefinition {
             if (id == null || id.isBlank()) throw new IllegalArgumentException("process id is required");

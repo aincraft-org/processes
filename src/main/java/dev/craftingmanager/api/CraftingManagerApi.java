@@ -37,6 +37,9 @@ public interface CraftingManagerApi {
     ProcessStartResult trigger(BlockKey block, UUID owner);
     ProcessStartResult start(BlockKey block, String processId, UUID owner);
     CompletionStage<ProcessState> advance(UUID instanceId);
+    Optional<ProcessInstanceSnapshot> activeInstance(BlockKey block);
+    Optional<ProcessInstanceSnapshot> activeInstance(UUID instanceId);
+
 
     record ProcessStartResult(boolean started, UUID instanceId, String reason) {
         public static ProcessStartResult rejected(String reason) { return new ProcessStartResult(false, null, reason); }
