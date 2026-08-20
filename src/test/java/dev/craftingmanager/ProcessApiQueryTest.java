@@ -41,6 +41,23 @@ class ProcessApiQueryTest {
         RuntimeEngine engine = new RuntimeEngine();
         assertTrue(engine.activeInstance(new BlockKey(UUID.randomUUID(), 0, 64, 0)).isEmpty());
     }
+    @Test void activeInstanceReturnsSnapshotByInstanceId() {
+        RuntimeEngine engine = new RuntimeEngine();
+        engine.registerEffectHandler(new EffectHandler<CompletionEffect>() {
+            public String type() { return "item-output"; }
+            public Class<CompletionEffect> effectType() { return CompletionEffect.class; }
+            public void execute(CompletionEffect effect, String effectId) {}
+        });
+        engine.registerProcess(new ProcessDefinition("job", List.of(), List.of(new ProcessStep("one", "One", 1)), List.of((CompletionEffect) () -> "item-output")));
+        BlockKey block = new BlockKey(UUID.randomUUID(), 0, 64, 0);
+        var started = engine.start(block, "job", UUID.randomUUID());
+        assertTrue(started.started());
+
+        var snapshot = engine.activeInstance(started.instanceId()).orElseThrow();
+
+        assertEquals(started.instanceId(), snapshot.instanceId());
+        assertEquals("job", snapshot.processId());
+    }
 
     @Test void activeInstanceReturnsParkedSnapshotAndBlockRemainsBusy() {
         RuntimeEngine engine = new RuntimeEngine();
