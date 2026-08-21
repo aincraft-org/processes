@@ -91,6 +91,7 @@ Shipped kernel:
 - [x] Persisted station inventories: SQLite `station_inventories`, in-memory `ItemSnapshot` slots, hopper/`start()` share those slots, player backpack is fallback only.
 - [x] Safe invalidation of parked instances: `NEEDS_PROVIDER_ACTION` instances are dismissed without returning claims or rerunning effects; running instances use normal cancellation.
 - [x] Core-controlled `reconcileInstance(UUID)` for explicit provider retry of parked `MISSING_EFFECT_HANDLER` and idempotent `EFFECT_HANDLER_EXCEPTION` instances.
+- [x] Off-main-thread SQLite writes with revision-checked apply-back; synchronous `flush()` barrier and async `save`/`delete` queue in `SqliteProcessStore`.
 
 ### Current notes
 
@@ -98,8 +99,7 @@ Private DB file `plugins/CraftingManager/craftingmanager.db`. First-party statio
 
 ## Next
 
-- [x] Public cancel/dismiss and progress queries on the public API.
-- [ ] Off-main-thread SQLite writes with revision-checked apply-back.
+- [x] Off-main-thread SQLite writes with revision-checked apply-back.
 
 Shipped on `CraftingManagerApi`: `activeInstance(BlockKey|UUID)` returning `ProcessInstanceSnapshot`; `cancelInstance(UUID)` returning `ProcessCancelResult(boolean cancelled, ProcessState state, String reason)`; `dismissInstance(UUID)` returning `ProcessDismissResult`; and `registerProcessEventSink(ProcessEventSink)` for observer fan-out. `emitStarting` preserves the primary-sink veto; observer handles remove sinks on close.
 
