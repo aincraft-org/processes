@@ -375,8 +375,56 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
 
     @Override public synchronized ProcessReconcileResult reconcileInstance(UUID instanceId) {
         Instance instance = instances.get(Objects.requireNonNull(instanceId));
-        if (instance == null || terminal(instance.state)) return ProcessReconcileResult.rejected("unknown or terminal instance");
-        return ProcessReconcileResult.rejected("not implemented");
+        if (instance == null || terminal(instance.state)) {
+            return ProcessReconcileResult.rejected("unknown or terminal instance");
+        }
+        if (instance.state != ProcessState.NEEDS_PROVIDER_ACTION) {
+            return new ProcessReconcileResult(false, instance.state, "not parked");
+        }
+        long expectedRevision = instance.revision;
+        if (instance.parkedReason != ParkedReason.MISSING_EFFECT_HANDLER
+                && instance.parkedReason != ParkedReason.EFFECT_HANDLER_EXCEPTION) {
+            return new ProcessReconcileResult(false, instance.state,
+                    "reason not reconcilable: " + instance.parkedReason);
+        }
+        ProcessDefinition registered = processes.get(instance.definition.id());
+        if (registered == null || !registered.equals(instance.definition)) {
+            return new ProcessReconcileResult(false, instance.state, "process definition missing or changed");
+        }
+        if (instance.parkedReason == ParkedReason.EFFECT_HANDLER_EXCEPTION) {
+            Integer target = firstEffectIndex(instance, EffectExecutionState.UNKNOWN);
+            if (target == null) {
+                return new ProcessReconcileResult(false, instance.state, "no reconcilable effect");
+            }
+            if (!allEffectsBeforeApplied(instance, target)) {
+                return new ProcessReconcileResult(false, instance.state, "ledger inconsistent");
+            }
+            CompletionEffect effect = instance.definition.effects().get(target);
+            HandlerRegistration<?> registration = handlers.get(effect.type());
+            if (registration == null || !registration.handler.effectType().isInstance(effect)) {
+                return new ProcessReconcileResult(false, instance.state, "effect handler missing");
+            }
+            if (registration.handler.idempotency() == IdempotencyMode.NON_RETRYABLE) {
+                return new ProcessReconcileResult(false, instance.state, "non-retryable effect");
+            }
+        } else {
+            List<CompletionEffect> effects = instance.definition.effects();
+            for (int i = 0; i < effects.size(); i++) {
+                if (instance.ledger.getOrDefault(i, EffectExecutionState.PENDING) == EffectExecutionState.APPLIED) continue;
+                CompletionEffect effect = effects.get(i);
+                HandlerRegistration<?> registration = handlers.get(effect.type());
+                if (registration == null || !registration.handler.effectType().isInstance(effect)) {
+                    return new ProcessReconcileResult(false, instance.state, "effect handler missing");
+                }
+            }
+        }
+        if (instance.revision != expectedRevision || instance.state != ProcessState.NEEDS_PROVIDER_ACTION) {
+            return new ProcessReconcileResult(false, instance.state, "instance changed");
+        }
+        instance.state = ProcessState.OUTPUT_PENDING;
+        ProcessState result = applyEffects(instance);
+        String reason = result == ProcessState.COMPLETED ? "completed" : "re-parked: " + instance.parkedReason;
+        return new ProcessReconcileResult(result == ProcessState.COMPLETED, result, reason);
     }
 
 
@@ -576,6 +624,23 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         instances.put(instance.id, instance);
         if (!terminal(instance.state)) activeByBlock.put(instance.block, instance.id);
         persist(instance);
+    }
+
+    private static Integer firstEffectIndex(Instance instance, EffectExecutionState... states) {
+        for (int i = 0; i < instance.definition.effects().size(); i++) {
+            EffectExecutionState current = instance.ledger.getOrDefault(i, EffectExecutionState.PENDING);
+            for (EffectExecutionState state : states) {
+                if (current == state) return i;
+            }
+        }
+        return null;
+    }
+
+    private static boolean allEffectsBeforeApplied(Instance instance, int target) {
+        for (int i = 0; i < target; i++) {
+            if (instance.ledger.getOrDefault(i, EffectExecutionState.PENDING) != EffectExecutionState.APPLIED) return false;
+        }
+        return true;
     }
 
     private static int firstNonAppliedEffectOfType(Instance instance, String type) {
