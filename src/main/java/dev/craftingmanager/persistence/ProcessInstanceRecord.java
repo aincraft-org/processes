@@ -19,7 +19,8 @@ public record ProcessInstanceRecord(
         ProcessState state,
         Reservation.State reservationState,
         List<Reservation.Claim> claims,
-        List<EffectExecution> ledger) {
+        List<EffectExecution> ledger,
+        String parkedReason) {
     public ProcessInstanceRecord {
         if (instanceId == null || block == null || processId == null || processId.isBlank() || owner == null || state == null) {
             throw new IllegalArgumentException("process instance identity is required");
@@ -27,5 +28,6 @@ public record ProcessInstanceRecord(
         if (stepTicks < 0) throw new IllegalArgumentException("stepTicks cannot be negative");
         claims = List.copyOf(claims == null ? List.of() : claims);
         ledger = List.copyOf(ledger == null ? List.of() : ledger);
+        parkedReason = parkedReason == null ? "UNKNOWN" : parkedReason;
     }
 }
