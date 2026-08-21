@@ -17,6 +17,7 @@ public interface ProcessStore {
     void removeSlot(BlockKey key, String slotId);
     void removeSlots(BlockKey key);
     List<StationSlotRecord> loadSlots();
+    void flush();
 
     static ProcessStore none() {
         return new ProcessStore() {
@@ -30,6 +31,7 @@ public interface ProcessStore {
             @Override public void removeSlot(BlockKey key, String slotId) {}
             @Override public void removeSlots(BlockKey key) {}
             @Override public List<StationSlotRecord> loadSlots() { return List.of(); }
+            @Override public void flush() {}
         };
     }
 }
