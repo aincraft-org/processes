@@ -42,6 +42,7 @@ public interface CraftingManagerApi {
     Optional<ProcessInstanceSnapshot> activeInstance(UUID instanceId);
     ProcessCancelResult cancelInstance(UUID instanceId);
     ProcessDismissResult dismissInstance(UUID instanceId);
+    ProcessReconcileResult reconcileInstance(UUID instanceId);
 
 
     record ProcessStartResult(boolean started, UUID instanceId, String reason) {

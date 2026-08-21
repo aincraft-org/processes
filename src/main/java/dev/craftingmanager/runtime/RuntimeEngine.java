@@ -373,6 +373,13 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         return new ProcessDismissResult(true, "dismissed");
     }
 
+    @Override public synchronized ProcessReconcileResult reconcileInstance(UUID instanceId) {
+        Instance instance = instances.get(Objects.requireNonNull(instanceId));
+        if (instance == null || terminal(instance.state)) return ProcessReconcileResult.rejected("unknown or terminal instance");
+        return ProcessReconcileResult.rejected("not implemented");
+    }
+
+
 
 
     public synchronized void tick() {
@@ -502,6 +509,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         for (Map.Entry<BlockKey, Map<String, ItemSnapshot>> entry : stationPorts.entrySet()) {
             persistSlots(entry.getKey(), entry.getValue());
         }
+        store.flush();
     }
 
     public synchronized void clear() {

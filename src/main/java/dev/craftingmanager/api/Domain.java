@@ -94,6 +94,9 @@ public final class Domain {
     public record ProcessDismissResult(boolean dismissed, String reason) {
         public static ProcessDismissResult rejected(String reason) { return new ProcessDismissResult(false, reason); }
     }
+    public record ProcessReconcileResult(boolean reconciled, ProcessState state, String reason) {
+        public static ProcessReconcileResult rejected(String reason) { return new ProcessReconcileResult(false, null, reason); }
+    }
 
     public record ProcessDefinition(String id, List<ProcessInput> inputs, List<ProcessStep> steps, List<CompletionEffect> effects) {
         public ProcessDefinition {
