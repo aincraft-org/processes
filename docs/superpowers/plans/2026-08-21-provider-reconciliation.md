@@ -16,6 +16,11 @@
 - `ProcessInstanceSnapshot` does not expand with block/revision/parked reason in v1.
 - No provider callback mutates instance state.
 - Public API additions live in `api/`; core logic in `runtime/`; persistence in `persistence/`.
+- The `SqliteProcessStore` in the working tree already uses an async queued writer (`QueuedWrite`, `applySave()` on a writer thread, `ProcessStore.flush()`). Persistence steps use the current `write.record()` shape and add `parked_reason` as the 13th SQL parameter and the 12th `ProcessInstanceRecord` field.
+
+## Implementation Amendment
+
+The `SqliteProcessStore` has uncommitted queued-writer changes. Task 2 updates `applySave` and `loadAll` directly. Any test that constructs `new ProcessInstanceRecord(...)` with 11 arguments (e.g., `SqliteProcessStoreTest`) must add a `parkedReason` string argument such as `"UNKNOWN"` after `ledger`.
 
 ---
 
