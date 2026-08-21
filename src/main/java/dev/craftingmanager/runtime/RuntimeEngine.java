@@ -430,6 +430,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
             CompletionEffect effect = instance.definition.effects().get(i);
             HandlerRegistration<?> registration = handlers.get(effect.type());
             if (registration == null || !registration.handler.effectType().isInstance(effect)) {
+                instance.parkedReason = ParkedReason.MISSING_EFFECT_HANDLER;
                 instance.state = ProcessState.NEEDS_PROVIDER_ACTION;
                 persist(instance);
                 emitFinished(instance);
@@ -443,6 +444,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
                 instance.ledger.put(i, EffectExecutionState.APPLIED);
             } catch (RuntimeException error) {
                 instance.ledger.put(i, EffectExecutionState.UNKNOWN);
+                instance.parkedReason = ParkedReason.EFFECT_HANDLER_EXCEPTION;
                 instance.state = ProcessState.NEEDS_PROVIDER_ACTION;
                 persist(instance);
                 emitFinished(instance);
@@ -450,11 +452,13 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
             }
         }
         if (!returnClaims(instance, ConsumptionPolicy.RETURN_ON_SUCCESS, ConsumptionPolicy.RETURN_ALWAYS)) {
+            instance.parkedReason = ParkedReason.RETURN_CLAIM_FAILED;
             instance.state = ProcessState.NEEDS_PROVIDER_ACTION;
             persist(instance);
             emitFinished(instance);
             return instance.state;
         }
+        instance.parkedReason = ParkedReason.NONE;
         instance.state = ProcessState.COMPLETED;
         activeByBlock.remove(instance.block, instance.id);
         if (instance.reservationState != null) instance.reservationState = Reservation.State.CONSUMED;
@@ -527,6 +531,14 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         handlers.clear();
     }
 
+    private static ParkedReason parkedReasonFromString(String value) {
+        try {
+            return ParkedReason.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            return ParkedReason.UNKNOWN;
+        }
+    }
+
     private void restore(ProcessInstanceRecord record) {
         ProcessDefinition definition = processes.get(record.processId());
         ProcessState state = record.state();
@@ -543,12 +555,38 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         instance.stepTicks = record.stepTicks();
         instance.state = state;
         instance.reservationState = record.reservationState();
+        if (definition == null) {
+            instance.parkedReason = ParkedReason.MISSING_DEFINITION;
+        } else if (missingHandlers(definition)) {
+            ParkedReason fromRecord = parkedReasonFromString(record.parkedReason());
+            if (fromRecord == ParkedReason.RETURN_CLAIM_FAILED || fromRecord == ParkedReason.MISSING_DEFINITION) {
+                instance.parkedReason = fromRecord;
+            } else {
+                instance.parkedReason = ParkedReason.MISSING_EFFECT_HANDLER;
+            }
+        } else {
+            instance.parkedReason = parkedReasonFromString(record.parkedReason());
+            if (instance.state == ProcessState.NEEDS_PROVIDER_ACTION && instance.parkedReason == ParkedReason.NONE) {
+                instance.parkedReason = ParkedReason.UNKNOWN;
+            }
+        }
         for (int i = 0; i < record.ledger().size(); i++) {
             instance.ledger.put(i, record.ledger().get(i).state());
         }
         instances.put(instance.id, instance);
         if (!terminal(instance.state)) activeByBlock.put(instance.block, instance.id);
         persist(instance);
+    }
+
+    private static int firstNonAppliedEffectOfType(Instance instance, String type) {
+        List<CompletionEffect> effects = instance.definition.effects();
+        for (int i = 0; i < effects.size(); i++) {
+            if (effects.get(i).type().equals(type)) {
+                EffectExecutionState state = instance.ledger.getOrDefault(i, EffectExecutionState.PENDING);
+                if (state != EffectExecutionState.APPLIED) return i;
+            }
+        }
+        return -1;
     }
 
     private boolean missingHandlers(ProcessDefinition definition) {
@@ -579,7 +617,8 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         }
         store.save(new ProcessInstanceRecord(
                 instance.id, instance.block, instance.definition.id(), instance.owner, instance.revision,
-                instance.step, instance.stepTicks, instance.state, instance.reservationState, instance.claims, ledger));
+                instance.step, instance.stepTicks, instance.state, instance.reservationState, instance.claims, ledger,
+                instance.parkedReason.name()));
     }
 
     private void unregisterHandler(String type, EffectHandler<?> handler) {
@@ -593,7 +632,15 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         }
         if (registration.policy == UnregisterPolicy.FAIL_ACTIVE_PROCESSES) {
             active.forEach(i -> {
+                int index = firstNonAppliedEffectOfType(i, type);
+                if (index < 0) return;
                 i.state = ProcessState.NEEDS_PROVIDER_ACTION;
+                EffectExecutionState effectState = i.ledger.getOrDefault(index, EffectExecutionState.PENDING);
+                if (effectState == EffectExecutionState.UNKNOWN || effectState == EffectExecutionState.RUNNING) {
+                    i.parkedReason = ParkedReason.EFFECT_HANDLER_EXCEPTION;
+                } else {
+                    i.parkedReason = ParkedReason.MISSING_EFFECT_HANDLER;
+                }
                 persist(i);
             });
         } else if (registration.policy == UnregisterPolicy.CANCEL_ACTIVE_PROCESSES) {
@@ -839,6 +886,8 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
 
     private record ChunkCoord(UUID worldId, int x, int z) {}
 
+
+    private enum ParkedReason { NONE, MISSING_EFFECT_HANDLER, EFFECT_HANDLER_EXCEPTION, RETURN_CLAIM_FAILED, MISSING_DEFINITION, UNKNOWN }
     private static final class Instance {
         final UUID id;
         final BlockKey block;
@@ -852,6 +901,7 @@ public final class RuntimeEngine implements CraftingManagerApi, StationPorts {
         long revision;
         ProcessState state = ProcessState.CREATED;
         Reservation.State reservationState;
+        ParkedReason parkedReason = ParkedReason.NONE;
 
         Instance(UUID id, BlockKey block, ProcessDefinition definition, UUID owner, InventoryAdapter adapter, List<Reservation.Claim> claims) {
             this.id = id;
