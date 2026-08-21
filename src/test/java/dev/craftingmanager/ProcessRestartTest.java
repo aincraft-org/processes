@@ -139,8 +139,10 @@ class ProcessRestartTest {
             for (int i = 0; i < 19; i++) {
                 assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
             }
+            store.flush();
             assertEquals(0, store.loadAll().getFirst().stepTicks());
             assertEquals(ProcessState.RUNNING, engine.advance(instanceId).toCompletableFuture().join());
+            store.flush();
             ProcessInstanceRecord saved = store.loadAll().getFirst();
             assertEquals(instanceId, saved.instanceId());
             assertEquals(20, saved.stepTicks());

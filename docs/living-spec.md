@@ -90,6 +90,7 @@ Shipped kernel:
 - [x] Chunk load/unload lifecycle: `loadChunk`/`unloadChunk`, Paper `ChunkLoadEvent`/`ChunkUnloadEvent`, seed currently loaded chunks on enable. Processes do not tick until their chunk is loaded.
 - [x] Persisted station inventories: SQLite `station_inventories`, in-memory `ItemSnapshot` slots, hopper/`start()` share those slots, player backpack is fallback only.
 - [x] Safe invalidation of parked instances: `NEEDS_PROVIDER_ACTION` instances are dismissed without returning claims or rerunning effects; running instances use normal cancellation.
+- [x] Core-controlled `reconcileInstance(UUID)` for explicit provider retry of parked `MISSING_EFFECT_HANDLER` and idempotent `EFFECT_HANDLER_EXCEPTION` instances.
 
 ### Current notes
 
